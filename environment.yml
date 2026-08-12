@@ -1,0 +1,34 @@
+# Exact environment that produced every figure in the SPEC manuscript.
+#
+# Pins are `=` (exact), unlike the `>=` bounds in pyproject.toml. That split is
+# deliberate: a library must stay co-installable, so it declares lower bounds; a
+# reproducibility archive must pin, so this file does.
+#
+#   mamba env create -f environment.yml
+#   conda activate spec-paper
+#   pip install -e .          # the bundled library, from src/spec_analytics
+#
+# Verify afterwards:
+#   python -c "import spec_analytics as core; print(core.__file__)"
+name: spec-paper
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.12.12
+  - numpy=2.3.5
+  - pandas=2.3.3
+  - matplotlib=3.10.7
+  - scipy=1.16.3
+  - seaborn=0.13.2
+  - scikit-learn=1.7.2
+  - statsmodels=0.14.6
+  - pyarrow=22.0.0
+  - pip
+  - pip:
+      # Not on conda-forge at these versions, so installed by pip.
+      - matplotlib-venn==1.1.2
+      - pyteomics==4.7.5
+      - directlfq==0.3.3
+      - alphabase==1.7.2

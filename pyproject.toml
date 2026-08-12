@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spec_analytics"
+version = "0.2.0"
+description = "Engine-agnostic mass-spectrometry proteomics analysis library (DIA/DDA): loaders, canonical long-DataFrame schema, quant, stats, and plotting."
+readme = "README.md"
+requires-python = ">=3.12"
+# Lower bounds only, deliberately: this is a library, so `==` pins here would make it
+# uninstallable alongside anything else. Exact versions for reproducing a published
+# result belong in that project's environment file — see the SPEC paper repository's
+# `environment.yml`. These bounds are the versions the suite is tested against.
+#
+# scikit-learn, statsmodels, pyarrow, matplotlib-venn and pyteomics were absent from
+# this list until v0.2.0 even though the package imports all five: `plot_pca` and the
+# Gaussian-mixture helper need sklearn, Benjamini-Hochberg needs statsmodels, every
+# parquet read needs pyarrow, `plot_venn` needs matplotlib-venn and the isoelectric
+# point needs pyteomics. A clean install therefore built fine and then failed at
+# import, which is the worst place for a missing dependency to surface.
+dependencies = [
+    "numpy>=2.3",
+    "pandas>=2.3",
+    "matplotlib>=3.10",
+    "scipy>=1.16",
+    "seaborn>=0.13",
+    "scikit-learn>=1.7",
+    "statsmodels>=0.14",
+    "pyarrow>=22.0",
+    "matplotlib-venn>=1.1",
+    "pyteomics>=4.7",
+    "directlfq>=0.3.3",
+    "alphabase>=1.7",
+]
+
+[project.optional-dependencies]
+raw    = ["alpharaw"]
+intact = ["alpharaw", "unidec"]
+dev    = ["pytest", "pytest-cov", "ty", "mypy"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["unit_tests"]
+markers = [
+    "slow: characterization tests that are expensive to run (e.g. DirectLFQ); deselect with -m 'not slow'",
+]

@@ -1,0 +1,26 @@
+# --- deposited data -------------------------------------------------------
+# The search outputs are downloaded from MassIVE and unpacked into each figure's
+# input/ folder (see README section 2). They are ~11 GB and are not tracked.
+*/input/
+
+# --- generated outputs ----------------------------------------------------
+# Default SPEC_OUTPUT_ROOT, plus the names earlier runs used.
+output/
+output_test/
+source_data/
+figures/
+
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- editors / OS ---------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
