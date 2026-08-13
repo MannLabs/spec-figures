@@ -38,6 +38,10 @@ dependencies = [
 raw    = ["alpharaw"]
 intact = ["alpharaw", "unidec"]
 dev    = ["pytest", "pytest-cov", "ty", "mypy"]
+# The notebooks in notebooks/ need only a Jupyter front end: they call the panel
+# scripts in a subprocess and show the PNGs with matplotlib, which is already a
+# core dependency.
+notebooks = ["jupyterlab>=4"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

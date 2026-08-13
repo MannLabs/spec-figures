@@ -134,6 +134,25 @@ It prints its summary numbers to the screen and writes three files to
 Summary tables are printed rather than saved, because they are cheap aggregations of
 what is already in the source-data file.
 
+### Or use the notebooks
+
+`notebooks/` holds two, and they are the easiest way in:
+
+| notebook | what it does |
+|---|---|
+| `00_getting_started.ipynb` | checks the install, prints the resolved paths, reports which figure inputs are present, then builds one panel. Under a minute — run this first. |
+| `01_all_figures.ipynb` | rebuilds every panel in the paper, one cell per figure, showing each panel inline. Roughly 15 minutes end to end. |
+
+```bash
+pip install -e ".[notebooks]"
+jupyter lab notebooks/00_getting_started.ipynb
+```
+
+They run the same panel scripts in a subprocess rather than duplicating any
+analysis code, so a notebook cannot disagree with the script or with the source
+data. They are stored unexecuted — an executed copy would embed every 300 dpi
+panel — so expect empty cells until you run them.
+
 To run everything in one figure:
 
 ```bash
