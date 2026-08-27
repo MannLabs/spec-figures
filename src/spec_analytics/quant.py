@@ -1,18 +1,11 @@
-"""DirectLFQ protein-group quantification wrapper (engine-agnostic). Extracted
-from _core.py (REFACTOR_PLAN.md step 4); behaviour unchanged. directlfq and
-pyarrow are imported lazily inside the runners."""
-
+"""DirectLFQ protein-group quantification wrapper (engine-agnostic). Extracted"""
 from __future__ import annotations
-
 import os
 import shutil
 import tempfile
 import warnings
-
 import numpy as np
 import pandas as pd
-
-
 def compute_directlfq_pg_intensity(
     df: pd.DataFrame,
     *,
@@ -29,9 +22,7 @@ def compute_directlfq_pg_intensity(
     Compute a protein-group-level intensity per (protein_group, run) via
     DirectLFQ, and return a Series aligned to `df.index` with the broadcast
     `pg_intensity` value for every input row.
-
     The returned Series can be assigned directly: `df['pg_intensity'] = ...`.
-
     Parameters:
       use_inmemory: when True (default), invoke DirectLFQ's internal pipeline
                     on the in-memory wide DataFrame, skipping the TSV write/
@@ -39,7 +30,6 @@ def compute_directlfq_pg_intensity(
                     the file-based path if any DirectLFQ internal symbol is
                     missing (e.g. on a future version that renames them).
                     Pass False to force the file-based path.
-
     Notes:
       - 0 or NaN intensities in `intensity_col` are dropped before LFQ.
       - File-based path writes a temp directory under the system tempdir;
@@ -48,7 +38,6 @@ def compute_directlfq_pg_intensity(
     needed = [protein_col, ion_col, intensity_col, run_col]
     sub = df[needed]
     sub = sub[sub[intensity_col].notna() & (sub[intensity_col] > 0)]
-
     wide = sub.pivot_table(
         index=[ion_col, protein_col],
         columns=run_col,
@@ -56,7 +45,6 @@ def compute_directlfq_pg_intensity(
         aggfunc='first',
     ).reset_index()
     wide = wide.rename(columns={protein_col: 'protein', ion_col: 'ion'})
-
     if use_inmemory:
         try:
             prot_wide = _run_directlfq_inmemory(
@@ -75,30 +63,23 @@ def compute_directlfq_pg_intensity(
         prot_wide = _run_directlfq_via_files(
             wide, num_cores=num_cores, min_nonan=min_nonan, quiet=quiet,
         )
-
-    # prot_wide has a 'protein' column plus one column per run.
     sample_cols = [c for c in prot_wide.columns if c != 'protein']
     prot_long = prot_wide.melt(
         id_vars=['protein'], value_vars=sample_cols,
         var_name=run_col, value_name='pg_intensity',
     )
     prot_long = prot_long.rename(columns={'protein': protein_col})
-
-    # Broadcast back to every row of df via merge on (protein_group, run).
     keyed = df[[protein_col, run_col]].copy()
     keyed['_idx'] = np.arange(len(keyed))
     merged = keyed.merge(prot_long, on=[protein_col, run_col], how='left')
     merged = merged.sort_values('_idx')
     return pd.Series(merged['pg_intensity'].values, index=df.index, name='pg_intensity')
-
-
 def _run_directlfq_inmemory(wide, *, num_cores, min_nonan, quiet):
     """
     Drive DirectLFQ's pipeline on an in-memory wide DataFrame, skipping both
     the TSV write (input) and TSV read (output). Returns a wide protein-level
     DataFrame with a 'protein' column plus one column per run, identical in
     shape to what the file-based path would have read back.
-
     Mirrors the call sequence in directlfq.lfq_manager.run_lfq, minus the IO
     and minus the MaxQuant-specific bookkeeping that doesn't apply to the
     aq_reformat input we hand in.
@@ -107,17 +88,12 @@ def _run_directlfq_inmemory(wide, *, num_cores, min_nonan, quiet):
     import directlfq.normalization as _lfqnorm
     import directlfq.protein_intensity_estimation as _lfqprot
     import directlfq.utils as _lfqutils
-
-    # Match our wrapper's column names to DirectLFQ's globals.
     _config.set_global_protein_and_ion_id(protein_id='protein', quant_id='ion')
     _config.set_log_processed_proteins(log_processed_proteins=True)
     _config.set_compile_normalized_ion_table(compile_normalized_ion_table=True)
     _config.check_wether_to_copy_numpy_arrays_derived_from_pandas()
-
     ctx = _suppress_directlfq_output() if quiet else _NullContext()
     with ctx:
-        # Same prep chain as run_lfq, on our in-memory DataFrame instead of a
-        # freshly-loaded one.
         input_df = wide.drop_duplicates(subset='ion')
         input_df = _lfqutils.sort_input_df_by_protein_and_quant_id(input_df)
         input_df = _lfqutils.remove_potential_quant_id_duplicates(input_df)
@@ -134,10 +110,7 @@ def _run_directlfq_inmemory(wide, *, num_cores, min_nonan, quiet):
             num_samples_quadratic=10,
             num_cores=num_cores,
         )
-    # protein_df: 'protein' column + one column per run, NaN -> 0 already.
     return protein_df
-
-
 def _run_directlfq_via_files(wide, *, num_cores, min_nonan, quiet):
     """
     Original file-based path: write the wide DataFrame to a temp TSV, call
@@ -147,13 +120,9 @@ def _run_directlfq_via_files(wide, *, num_cores, min_nonan, quiet):
     import directlfq.lfq_manager as lfq_manager
     import pyarrow as pa
     import pyarrow.csv as pacsv
-
     workdir = tempfile.mkdtemp(prefix='directlfq_')
     try:
         in_path = os.path.join(workdir, 'input.aq_reformat.tsv')
-        # quoting_style='none' keeps the file un-quoted (smaller + faster for
-        # DirectLFQ to read back). Safe because our IDs/floats don't contain
-        # tabs, quotes, or newlines.
         pacsv.write_csv(
             pa.Table.from_pandas(wide, preserve_index=False),
             in_path,
@@ -173,19 +142,14 @@ def _run_directlfq_via_files(wide, *, num_cores, min_nonan, quiet):
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     return prot_wide
-
-
 class _NullContext:
     def __enter__(self): return self
     def __exit__(self, *exc): return False
-
-
 class _suppress_directlfq_output:
     """
     Silence DirectLFQ chatter — both `print` (stdout) and the `directlfq`
     logger (stderr). Restores everything on exit.
     """
-
     def __enter__(self):
         import logging
         import sys
@@ -196,10 +160,8 @@ class _suppress_directlfq_output:
         self._prev_level = self._logger.level
         self._logger.setLevel(logging.WARNING)
         return self
-
     def __exit__(self, *exc):
         import sys
         sys.stdout = self._stdout
         self._buf.close()
         self._logger.setLevel(self._prev_level)
-

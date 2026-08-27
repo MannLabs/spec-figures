@@ -1,18 +1,10 @@
-"""PCA scores plot.
-
-Extracted from _core.py (REFACTOR_PLAN.md step 5); behaviour unchanged. Heavy plotting deps (matplotlib, seaborn, scipy, sklearn) are imported lazily inside the functions."""
-
+"""PCA scores plot."""
 from __future__ import annotations
-
 import warnings
-
 import numpy as np
 import pandas as pd
-
 from ._style import (PALETTE_SINGLE, _empty_plot_with_message, _hide_top_right_spines, _filter_pivot_by_validity, _confidence_ellipse, _LEVEL_COLS, _resolve_panel_size)
 from ..filters import filter_runs
-
-
 def plot_pca(
     df,
     sample_info,
@@ -46,7 +38,6 @@ def plot_pca(
 ):
     """
     PCA on the (run x feature) wide pivot at the chosen quantitation level.
-
     Pass a single-engine df (e.g. from `core.split_by_engine`) — engines must
     not share a PCA. Pivots wide on the level's id and intensity columns
     (`(protein_group, pg_intensity)`, `(peptide_id, peptide_intensity)`, or
@@ -57,7 +48,6 @@ def plot_pca(
     (defaults to `condition2`). `n_components` is auto-bumped to at least
     `max(pc_x, pc_y)`. The returned `transformed` DataFrame contains all
     fitted PCs, so you can re-plot from the result without refitting.
-
     Parameters:
       level: 'precursor' | 'peptide' | 'protein'  (default 'protein').
       min_valid_fraction: a feature must have a valid value in at least this
@@ -69,10 +59,8 @@ def plot_pca(
         as AND — a feature has to clear every active filter.
       valid_group_col: which sample_info column defines the groups for the
         per-group filter. Defaults to `color_by`.
-
     `batch_correct`: None | 'median' | 'zscore' | 'total' | 'quantile' |
                      'subtract_pc1' | 'subtract_pc1_rescale'
-
     Returns (fig, ax, results) where results is a dict with the fitted PCA
     object, transformed coordinates, variance ratios, loadings, the sample-info
     used for colouring, and the matrix that PCA was fit on.
@@ -80,13 +68,11 @@ def plot_pca(
     import matplotlib.pyplot as plt
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import StandardScaler
-
     if level not in _LEVEL_COLS:
         raise ValueError(
             f"level must be one of {sorted(_LEVEL_COLS)}, got {level!r}"
         )
     id_col, intensity_col = _LEVEL_COLS[level]
-
     if pc_x < 1 or pc_y < 1 or pc_x == pc_y:
         raise ValueError(
             f'pc_x and pc_y must be distinct, >=1 (got pc_x={pc_x}, pc_y={pc_y})'
@@ -94,19 +80,13 @@ def plot_pca(
     n_components = max(n_components, pc_x, pc_y)
     x_col = f'PC{pc_x}'
     y_col = f'PC{pc_y}'
-
     if df['engine'].nunique() > 1:
         raise ValueError('plot_pca: df contains multiple engines; '
                          'use core.split_by_engine first')
-
     df = filter_runs(df, sample_info)
-
-    # Wide pivot: rows = runs, columns = features (level id), values = level intensity.
-    # All three intensity columns are constant per (id, run) by construction.
     pivot = df.pivot_table(
         index='run', columns=id_col, values=intensity_col, aggfunc='first',
     )
-
     n_before = pivot.shape[1]
     pivot = _filter_pivot_by_validity(
         pivot, sample_info,
@@ -134,10 +114,8 @@ def plot_pca(
         }
     if pivot.isna().any().any():
         pivot = pivot.fillna(pivot.min())
-
     if log_transform:
         pivot = np.log2(pivot + 1)
-
     pivot_corrected = pivot.copy()
     correction_label = 'none'
     if batch_correct == 'median':
@@ -179,32 +157,20 @@ def plot_pca(
         correction_label = batch_correct.replace('_', ' ')
     elif batch_correct is not None:
         raise ValueError(f'unknown batch_correct: {batch_correct!r}')
-
     matrix = StandardScaler().fit_transform(pivot_corrected) if scale else pivot_corrected.values
     pca = PCA(n_components=n_components)
     transformed = pca.fit_transform(matrix)
     var = pca.explained_variance_ratio_ * 100
-
     pca_df = pd.DataFrame(
         transformed,
         columns=[f'PC{i+1}' for i in range(n_components)],
         index=pivot_corrected.index,
     ).reset_index().merge(sample_info, on='run', how='left')
-
-    # `palette` may be a list (positional, matched to encounter order of
-    # unique values — fragile, depends on data row order) OR a dict
-    # mapping {group_value: color}. The dict form is preferred for any plot
-    # with semantically named groups so colours stay consistent regardless
-    # of how the rows happen to sort.
     if palette is None:
         palette = PALETTE_SINGLE
     data_groups = set(pca_df[color_by].astype(str).unique())
     if isinstance(palette, dict):
-        # Honour the user's dict iteration order for the legend, but keep
-        # only groups that actually appear in the data.
         groups = [str(g) for g in palette.keys() if str(g) in data_groups]
-        # Any data groups not in the dict get a fallback grey so they're
-        # still visible but obviously unspecified.
         missing = [g for g in data_groups if g not in groups]
         groups += missing
         color_map = {g: palette.get(g, palette.get(type(next(iter(palette)))(g), '#bdbdbd'))
@@ -214,7 +180,6 @@ def plot_pca(
     else:
         groups = list(pca_df[color_by].astype(str).unique())
         color_map = {g: palette[i % len(palette)] for i, g in enumerate(groups)}
-
     fig, ax = plt.subplots(figsize=_resolve_panel_size(figsize))
     if style_by is None:
         for grp in groups:
@@ -224,10 +189,6 @@ def plot_pca(
                        edgecolors='black', linewidth=1)
             if show_ellipses and len(sub) >= 3:
                 try:
-                    # Separate alphas: opaque edge (so it reads as a clean
-                    # contour) + translucent fill. Passing `alpha=` to the
-                    # patch would otherwise lighten the edge too, creating
-                    # a halo against the white background.
                     import matplotlib.colors as _mcolors
                     fill_rgba = list(_mcolors.to_rgba(color_map[grp]))
                     fill_rgba[3] = ellipse_alpha
@@ -242,12 +203,9 @@ def plot_pca(
                 except (ValueError, np.linalg.LinAlgError):
                     pass
     else:
-        # Two-axis encoding: colour by `color_by`, marker shape by `style_by`.
         markers = ['o', 's', '^', 'D', 'P', 'X', 'v', '<', '>', '*']
         styles = list(pca_df[style_by].astype(str).unique())
         marker_map = {s: markers[i % len(markers)] for i, s in enumerate(styles)}
-        # Plot one scatter per (color, style) cell so legend entries can be
-        # rendered cleanly.
         for grp in groups:
             for sty in styles:
                 sub = pca_df[(pca_df[color_by].astype(str) == grp)
@@ -284,7 +242,6 @@ def plot_pca(
                 xytext=(5, 5), textcoords='offset points',
                 fontsize=8, alpha=0.7,
             )
-
     ax.set_xlabel(f'{x_col} ({var[pc_x - 1]:.1f}% variance)',
                   fontsize=label_fontsize)
     ax.set_ylabel(f'{y_col} ({var[pc_y - 1]:.1f}% variance)',
@@ -299,7 +256,6 @@ def plot_pca(
     ax.axvline(0, color='k', linewidth=0.5, alpha=0.5)
     _hide_top_right_spines(ax)
     plt.tight_layout()
-
     return fig, ax, {
         'pca': pca,
         'transformed': pca_df,

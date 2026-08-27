@@ -1,33 +1,13 @@
-"""
-diann.py
-
-DIA-NN loader. Produces the canonical long DataFrame defined in
-Analytics_core. The protein-group quant `pg_intensity` is taken from DIA-NN's
-native `PG.MaxLFQ`.
-"""
-
+"""diann.py"""
 from __future__ import annotations
-
 import re
 import warnings
-
 import numpy as np
 import pandas as pd
-
 from ..proteins import build_peptide_id
 from ..quant import compute_directlfq_pg_intensity
 from ..schema import validate_df, validate_sample_info
-
-
-# ----------------------------------------------------------------------------
-# UniMod -> AlphaBase mapping
-# ----------------------------------------------------------------------------
-# Keyed on (UniMod ID, amino acid). Site override: when not None, replaces the
-# parsed site (used for N-term mods that DIA-NN encodes as `(UniMod:1)X`,
-# parsed at site 0 already, no override needed).
-
 _UNIMOD_TO_ALPHABASE = {
-    # (unimod_id, aa or None for N-term position) -> alphabase mod name
     (1, 'N-term'): 'Acetyl@Protein_N-term',
     (1, 'K'): 'Acetyl@K',
     (4, 'C'): 'Carbamidomethyl@C',
@@ -38,18 +18,12 @@ _UNIMOD_TO_ALPHABASE = {
     (21, 'Y'): 'Phospho@Y',
     (35, 'M'): 'Oxidation@M',
 }
-
-
 _UNIMOD_RE = re.compile(r'\(UniMod:(\d+)\)')
-
-
 def parse_diann_modified_sequence(modseq: str) -> tuple[str, str, str]:
     """
     Parse a DIA-NN `Modified.Sequence` string into AlphaBase columns.
-
     Returns (sequence, mods, mod_sites) where `mods` and `mod_sites` are
     ';'-separated strings. Empty strings for unmodified peptides.
-
     Examples:
       '(UniMod:1)AAAAGTATSQR'  -> ('AAAAGTATSQR', 'Acetyl@Protein_N-term', '0')
       'M(UniMod:35)PEPTIDE'    -> ('MPEPTIDE',    'Oxidation@M',           '1')
@@ -57,10 +31,9 @@ def parse_diann_modified_sequence(modseq: str) -> tuple[str, str, str]:
     sequence = _UNIMOD_RE.sub('', modseq)
     if '(' not in modseq:
         return sequence, '', ''
-
     mods: list[str] = []
     sites: list[str] = []
-    pos = 0  # 1-based position of the last AA seen so far
+    pos = 0
     i = 0
     n = len(modseq)
     while i < n:
@@ -91,16 +64,7 @@ def parse_diann_modified_sequence(modseq: str) -> tuple[str, str, str]:
         else:
             pos += 1
             i += 1
-
     return sequence, ';'.join(mods), ';'.join(sites)
-
-
-# ----------------------------------------------------------------------------
-# Loader
-# ----------------------------------------------------------------------------
-
-# DIA-NN parquet columns we read. Anything else is ignored; this also lets the
-# parquet engine skip irrelevant columns at read time.
 _DIANN_READ_COLS = (
     'Run', 'Protein.Group', 'Protein.Names', 'Genes',
     'Stripped.Sequence', 'Modified.Sequence',
@@ -108,8 +72,6 @@ _DIANN_READ_COLS = (
     'RT', 'Precursor.Normalised',
     'PG.MaxLFQ', 'Q.Value', 'PG.Q.Value',
 )
-
-
 def load_diann(
     path: str,
     sample_info: pd.DataFrame,
@@ -121,7 +83,6 @@ def load_diann(
 ) -> pd.DataFrame:
     """
     Load a DIA-NN parquet report into the canonical long DataFrame.
-
     Parameters:
       path:           DIA-NN report.parquet path
       sample_info:    canonical sample metadata. Only its `run` values are used
@@ -137,14 +98,10 @@ def load_diann(
                       number of cores for DirectLFQ when
                       `pg_intensity_method='directlfq'`. Default 8. Ignored
                       otherwise.
-
     The loader does not modify `sample_info`.
     """
     validate_sample_info(sample_info)
-
     raw = pd.read_parquet(path, columns=list(_DIANN_READ_COLS))
-
-    # Restrict to the runs present in sample_info.
     keep_runs = set(sample_info['run'])
     have_runs = set(raw['Run'].unique())
     missing = keep_runs - have_runs
@@ -155,8 +112,6 @@ def load_diann(
     raw = raw[raw['Run'].isin(keep_runs)].copy()
     if raw.empty:
         raise ValueError(f'No rows left after filtering by sample_info runs at {path}')
-
-    # Q-value filter.
     if qvalue_filter is not None:
         n_before = len(raw)
         raw = raw[raw['PG.Q.Value'] < qvalue_filter].copy()
@@ -165,21 +120,14 @@ def load_diann(
             f'[diann] qvalue<{qvalue_filter}: kept {len(raw):,} of {n_before:,} '
             f'rows ({pct:.1f}%)'
         )
-
-    # Parse modified sequences -> AlphaBase columns.
     parsed = raw['Modified.Sequence'].map(parse_diann_modified_sequence)
     raw['sequence'] = parsed.map(lambda t: t[0])
     raw['mods'] = parsed.map(lambda t: t[1])
     raw['mod_sites'] = parsed.map(lambda t: t[2])
-
-    # peptide_id is the peptidoform-level inline modified-sequence string.
-    # E.g. '(Acetyl@Protein_N-term)AAAGTATSQR' or 'PEPM(Oxidation@M)IDE'.
     raw['peptide_id'] = [
         build_peptide_id(s, m, ms)
         for s, m, ms in zip(raw['sequence'], raw['mods'], raw['mod_sites'])
     ]
-
-    # Build the canonical DataFrame (one row per (precursor, run)).
     df = pd.DataFrame({
         'run':              raw['Run'].astype(str),
         'protein_group':    raw['Protein.Group'].astype(str),
@@ -200,17 +148,11 @@ def load_diann(
         'score_engine':     raw['Q.Value'].astype(float),
         'engine':           pd.Categorical(['diann'] * len(raw), categories=['diann', 'peaks']),
     })
-
-    # 0 -> NaN.
     for c in ('precursor_intensity', 'pg_intensity'):
         df.loc[df[c] == 0, c] = np.nan
-
-    # peptide_intensity = sum of precursor_intensity per (peptide_id, run),
-    # broadcast back onto every precursor row.
     df['peptide_intensity'] = (df.groupby(['peptide_id', 'run'])['precursor_intensity']
                                .transform('sum'))
     df.loc[df['peptide_intensity'] == 0, 'peptide_intensity'] = np.nan
-
     if pg_intensity_method == 'directlfq':
         print(
             f'[diann] running DirectLFQ on {len(df):,} precursor rows '
@@ -229,7 +171,6 @@ def load_diann(
             f"pg_intensity_method must be 'maxlfq' or 'directlfq', "
             f"got {pg_intensity_method!r}"
         )
-
     df.attrs['source_path'] = path
     df.attrs['qvalue_filter'] = qvalue_filter
     df.attrs['pg_intensity_method'] = pg_intensity_method

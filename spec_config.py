@@ -16,7 +16,10 @@ Set them only to keep the data or the outputs outside the repository:
     export SPEC_DATA_ROOT=/data/SPEC                (macOS / Linux)
 
 Everything else is derived. A script asks for its own figure's input or output by
-passing `__file__`; the figure name is taken from the directory the script lives in.
+passing `__file__`; the figure name is taken from the directory the script lives
+in. A script whose panel belongs to another figure — several supplementary panels
+are built from a main figure's search output — asks for that figure by name
+through `output_dir_of`, so its input still resolves from where it sits.
 """
 import os
 
@@ -40,16 +43,19 @@ def input_dir(script_path, *parts):
 
 def output_dir(script_path, *parts):
     """Output directory of the figure this script belongs to, created on demand."""
-    d = os.path.join(OUTPUT_ROOT, figure_of(script_path), *parts)
+    return output_dir_of(figure_of(script_path), *parts)
+
+
+def output_dir_of(figure, *parts):
+    """Output directory of a named figure, for panels written across figures."""
+    d = os.path.join(OUTPUT_ROOT, figure, *parts)
     os.makedirs(d, exist_ok=True)
     return d
 
 
 def data_dir(script_path, *parts):
     """Cache directory, kept beside the outputs rather than in the input tree."""
-    d = os.path.join(OUTPUT_ROOT, figure_of(script_path), 'data')
-    os.makedirs(d, exist_ok=True)
-    return os.path.join(d, *parts)
+    return os.path.join(output_dir_of(figure_of(script_path), 'data'), *parts)
 
 
 def cross_input(figure, *parts):

@@ -1,29 +1,22 @@
-"""Shared machinery for supplementary figure 3 — peptide counts and their CVs."""
-
+"""Shared machinery for the peptide-count panels — figure 2 and its supplement."""
 import os
 import sys
-
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 import matplotlib.ticker as mticker
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
-
 import spec_analytics as core
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..')))
 import spec_config as _cfg
-# Geometry constants live with figure 2 and are imported, never duplicated.
 sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..', 'figure2',
                                                 'scripts')))
-import common_figure2 as cf                                    # noqa: E402
-
+import common_figure2 as cf
 FIG2_INPUT = _cfg.cross_input('figure2')
 OUTDIR = _cfg.output_dir(__file__)
-CACHE_DIR = os.path.abspath(_cfg.data_dir(__file__))
-
+CACHE_DIR = _cfg.data_dir(__file__)
 QVALUE = cf.QVALUE
 MIN_VALUES_FOR_CV = cf.MIN_VALUES_FOR_CV
 CV_THRESHOLD = cf.CV_THRESHOLD
@@ -32,31 +25,20 @@ LEGEND_FONTSIZE = cf.LEGEND_FONTSIZE
 YLABEL = 'Peptides'
 SHARED_YMAX = 160_000
 YTICKS = list(range(0, 160_001, 20_000))
-# Right axis: summed raw precursor intensity, in units of 1e12.
 INTENSITY_SCALE = 1e12
 RIGHT_LABEL = 'Summed precursor intensity [$10^{12}$]'
 RIGHT_HEADROOM = 1.14
-# Value labels off, as in figures 1 and 2. Panel a carries 16 bars x 2 series and
-# the numbers collide; they are all in the source data. Set True for a quick look.
 SHOW_VALUE_LABELS = False
-
-
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
 read_peptides = cf.read_peptides
 counts_and_cv = cf.counts_and_cv
 summarise = cf.summarise
-
-
 def read_precursor_sums(path, *, runs=None):
     """Summed raw `Precursor.Quantity` per run — the figure's intensity readout.
-
     **Precursor level, everywhere.** Summing the peptide- or protein-rolled-up
     quantity would double nothing but would make the number depend on the roll-up
     key, so it would move when the peptide definition moves; the precursor sum is
     the one intensity that is a property of the run alone. Filter is
     `read_peptides`', so the bars and the line describe the same set of rows.
-
     Raw, never normalised: the whole point of the panel is that the conditions
     differ in how much signal survives, and normalising would remove exactly that.
     """
@@ -72,73 +54,98 @@ def read_precursor_sums(path, *, runs=None):
         d = d[d['Run'].isin(runs)]
     return (d.groupby('Run', sort=True)['Precursor.Quantity'].sum()
             / INTENSITY_SCALE)
-
-# ---------------------------------------------------------------------------
-# Drawing
-# ---------------------------------------------------------------------------
 def draw_grouped_overlapping(ax, categories, series, *,
-                             point_size=cf.POINT_SIZE_PLACEHOLDER, seed=0):
+                             point_size=cf.POINT_SIZE_PLACEHOLDER, seed=0,
+                             class_groups=None, class_label_y=-0.135):
     """Grouped overlapping bars: light total, dark CV < 20 % subset.
-
     `series` is a list of dicts:
         label   legend / source-data text
         method  method identity
         color   method hue
-        totals  {category: sequence of per-replicate peptide counts}
-        cv20    {category: int}
-
+        totals  {category: sequence of per-replicate counts}
+        cv20    {category: int}, or None for a single SOLID bar per category
+                (a quantity with no CV subset, e.g. a completeness rate)
     Bar slots, widths, group gaps and edge padding all come from
     `common_figure2`, so a supplement panel and its main panel have bars of the
     same width at the same panel width.
-
     **Only the light bar carries replicate points.** The dark bar is a
     condition-level count computed across the replicates and has no
     per-replicate decomposition — the one bar in the house style that is
     legitimately without points.
+    `class_groups` puts a second kind of thing on the x axis, as
+    `[(label, [categories...]), ...]` covering every category in order. It opens
+    an extra `cf.GROUP_GAP` between classes and writes the class names on a row
+    beneath the category ticks. Use it when the categories are not one
+    homogeneous series — detergent load splits into SDC and SDS, and a flat row
+    of six bars invites a dose-response reading across a chemistry change that
+    is not a dose at all. This is the house rule that `core.plot_grouped_bars`
+    implements for the single-metric case; the overlapping construction needs its
+    own because the dark bar has to stay registered on the light one.
     """
     rng = np.random.default_rng(seed)
     n = len(series)
     step = n + cf.GROUP_GAP
     jitter = 0.22 * cf.BAR_FRAC
-
+    if class_groups is not None:
+        flat = [c for _lab, members in class_groups for c in members]
+        if flat != list(categories):
+            raise ValueError('class_groups must cover every category in order; '
+                             f'got {flat} for {list(categories)}')
+        shift, seen = {}, 0
+        for gi, (_lab, members) in enumerate(class_groups):
+            for c in members:
+                shift[c] = gi * cf.GROUP_GAP
+                seen += 1
+    else:
+        shift = {c: 0.0 for c in categories}
+    def offset(i, cat):
+        return i * step + shift[cat]
     heights, bar_points = [], []
     for k, s in enumerate(series):
         for i, cat in enumerate(categories):
             vals = np.asarray(s['totals'][cat], dtype=float)
-            centre = i * step + k + 0.5
+            centre = offset(i, cat) + k + 0.5
             mean = float(np.mean(vals))
-            ax.bar(centre, mean, cf.BAR_FRAC, color=cf.lighten(s['color']),
-                   edgecolor='darkgray', linewidth=0.7, zorder=2)
-            ax.bar(centre, s['cv20'][cat], cf.BAR_FRAC, color=s['color'],
-                   edgecolor='black', linewidth=0.7, zorder=3)
+            dark = None if s.get('cv20') is None else s['cv20'][cat]
+            if dark is None:
+                ax.bar(centre, mean, cf.BAR_FRAC, color=s['color'],
+                       edgecolor='black', linewidth=0.7, zorder=2)
+            else:
+                ax.bar(centre, mean, cf.BAR_FRAC, color=cf.lighten(s['color']),
+                       edgecolor='darkgray', linewidth=0.7, zorder=2)
+                ax.bar(centre, dark, cf.BAR_FRAC, color=s['color'],
+                       edgecolor='black', linewidth=0.7, zorder=3)
             bar_points.append(ax.scatter(
                 centre + rng.uniform(-jitter, jitter, size=vals.size), vals,
                 s=point_size, color='black', alpha=0.85, linewidth=0.3,
                 edgecolor='white', zorder=5))
-            heights.append((s['label'], cat, mean, s['cv20'][cat]))
+            heights.append((s['label'], cat, mean, dark))
             if SHOW_VALUE_LABELS:
                 ax.text(centre, mean * 1.02, f'{mean:,.0f}', ha='center',
                         va='bottom', fontsize=6.5, rotation=90)
-
-    centres = [i * step + n / 2 for i in range(len(categories))]
+    centres = [offset(i, c) + n / 2 for i, c in enumerate(categories)]
     first_edge = 0.5 - cf.BAR_FRAC / 2
-    last_edge = (len(categories) - 1) * step + n - 0.5 + cf.BAR_FRAC / 2
+    last_edge = (offset(len(categories) - 1, categories[-1]) + n - 0.5
+                 + cf.BAR_FRAC / 2)
     ax.set_xlim(first_edge - cf.EDGE_PAD, last_edge + cf.EDGE_PAD)
     ax.set_xticks(centres)
     ax.set_xticklabels([str(c) for c in categories], fontsize=FONTSIZE)
+    if class_groups is not None:
+        pos = dict(zip(categories, centres))
+        ax.tick_params(axis='x', length=0)
+        for lab, members in class_groups:
+            ax.text(float(np.mean([pos[c] for c in members])), class_label_y,
+                    lab, ha='center', va='top', fontsize=FONTSIZE,
+                    transform=ax.get_xaxis_transform())
     return heights, bar_points
-
-
 def draw_right_lines(ax_right, categories, series, *,
                      point_size=cf.POINT_SIZE_PLACEHOLDER):
     """Summed precursor intensity as one line per method on the twin axis.
-
     Same construction as figure 2's right axis: each line runs through the x
     centres of its own method's bars rather than through the group centre, so it
     sits above the bars it belongs to. Drawn as a line, not a third bar, because
     the quantity spans up to 10x within a panel and a bar at 1 % of the axis is
     invisible where a marker is still a marker.
-
     `series` must be the same list, in the same order, that was passed to
     `draw_grouped_overlapping` — the bar slot is derived from the series index —
     and each entry needs an `intensity` mapping of category to per-replicate
@@ -162,8 +169,6 @@ def draw_right_lines(ax_right, categories, series, *,
                       markeredgecolor='white', markeredgewidth=0.7, zorder=7)
         heights.extend((s['label'], cat, m) for cat, m in zip(categories, means))
     return heights
-
-
 def style_right_axis(ax_left, ax_right, right_max):
     """Zero-based twin axis carrying the intensity line."""
     ax_right.set_ylim(0, right_max * RIGHT_HEADROOM)
@@ -171,42 +176,33 @@ def style_right_axis(ax_left, ax_right, right_max):
     ax_right.tick_params(labelsize=FONTSIZE)
     ax_right.tick_params(axis='x', length=0)
     ax_right.spines['top'].set_visible(False)
-    # `init_plotting` disables the right spine globally, which on a twinned pair
-    # leaves ticks and labels with no axis line to sit on.
     ax_left.spines['right'].set_visible(False)
     ax_right.spines['left'].set_visible(False)
     ax_right.spines['right'].set_visible(True)
     ax_right.spines['right'].set_linewidth(
         ax_left.spines['left'].get_linewidth())
-
-
-def style_axes(ax, *, xlabel, ymax=None, headroom=1.08):
+def style_axes(ax, *, xlabel, ymax=None, headroom=1.08, ylabel=None):
     """House axis styling. `ymax=None` uses the shared limit — see SHARED_YMAX.
-
     Headroom is 1.08 rather than figure 2's 1.14: the value labels that headroom
     was reserved for are off here, and both keys sit outside the axes.
     """
     ax.set_ylim(0, SHARED_YMAX if ymax is None else ymax * headroom)
-    ax.set_yticks(YTICKS if ymax is None else ax.get_yticks())
+    if ymax is None:
+        ax.set_yticks(YTICKS)
     ax.set_xlabel(xlabel, fontsize=FONTSIZE)
-    ax.set_ylabel(YLABEL, fontsize=FONTSIZE)
+    ax.set_ylabel(YLABEL if ylabel is None else ylabel, fontsize=FONTSIZE)
     ax.tick_params(labelsize=FONTSIZE)
-    # Thousands separators, as on figure 2's protein-group axis. These counts run
-    # to six digits, where a bare `160000` is genuinely hard to read at a glance.
     ax.yaxis.set_major_formatter(
         mticker.FuncFormatter(lambda v, _pos: f'{v:,.0f}'))
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-
-
-def metric_key(*, with_intensity=True):
+def metric_key(*, with_intensity=True, total_label='Peptides identified'):
     """Grey key naming the three marks; hue stays reserved for method identity.
-
     Two bars and a line, matching the panel: light bar = all peptides, dark bar =
     the CV < 20 % subset, line = summed precursor intensity on the right axis.
     """
     key = [Patch(facecolor=cf.lighten(cf.LEGEND_DARK), edgecolor='darkgray',
-                 linewidth=0.7, label='Peptides'),
+                 linewidth=0.7, label=total_label),
            Patch(facecolor=cf.LEGEND_DARK, edgecolor='black', linewidth=0.7,
                  label='CV < 20 %')]
     if with_intensity:
@@ -216,34 +212,28 @@ def metric_key(*, with_intensity=True):
                           markeredgecolor='white', markeredgewidth=0.7,
                           label='Precursor intensity'))
     return key
-
-
-def finish(fig, ax, bar_points, stem, *, w_in=None):
+def finish(fig, ax, bar_points, stem, *, w_in=None, outdir=None):
     """Pin the data area, resize the replicate dots, save PDF + PNG.
-
     `ax` may be a single axes or the twinned pair; a twinned pair has to be
     repositioned together or the two stop sharing a frame. Replicate dots are
     resized against the first axes, which is the one carrying the bars.
     """
+    outdir = OUTDIR if outdir is None else outdir
     axes = list(np.atleast_1d(ax))
     fig.tight_layout()
     cf.set_axes_size_inches(fig, axes, w_in=w_in, h_in=cf.AXES_H_IN)
     size = cf.finish_points(axes[0], bar_points)
-    fig.savefig(os.path.join(OUTDIR, f'{stem}.pdf'), bbox_inches='tight')
-    fig.savefig(os.path.join(OUTDIR, f'{stem}.png'), dpi=300,
+    fig.savefig(os.path.join(outdir, f'{stem}.pdf'), bbox_inches='tight')
+    fig.savefig(os.path.join(outdir, f'{stem}.png'), dpi=300,
                 bbox_inches='tight')
     width = fig.get_size_inches()[0]
     print(f'  saved {stem} at {width:.2f} in wide, replicate dot s = {size}')
-
-
-def write_sourcedata(rows, stem):
+def write_sourcedata(rows, stem, outdir=None):
     pd.DataFrame(rows).to_csv(
-        os.path.join(OUTDIR, f'{stem}_sourcedata.csv'), index=False)
-
-
+        os.path.join(OUTDIR if outdir is None else outdir,
+                     f'{stem}_sourcedata.csv'), index=False)
 def intensity_rows(intensities, series_label_of, xcol):
     """Source-data rows for the right axis: per-run values plus the line points.
-
     `intensities` maps (method, category) to a `Run -> summed intensity` series,
     so the run names travel with the values and a reader can line the line up
     against the bars run by run.
@@ -259,8 +249,6 @@ def intensity_rows(intensities, series_label_of, xcol):
                      'method': series_label_of(method), xcol: cat, 'run': '',
                      'replicate': np.nan, 'value': float(np.mean(s.to_numpy()))})
     return rows
-
-
 def source_rows(summaries, series_label_of, cat_label, xcol):
     """Long-form source data: one row per replicate, one per bar height."""
     rows = []
@@ -289,8 +277,6 @@ def source_rows(summaries, series_label_of, cat_label, xcol):
                      'peptides_cv20': s['n_cv20'],
                      'median_cv_pct': round(s['median_cv_pct'], 2)})
     return rows
-
-
 def report(summaries, xlabel):
     """Print the table; the figure folder gets figures and source data only."""
     rows = []
@@ -311,11 +297,8 @@ def report(summaries, xlabel):
               'mean per-run count) in:')
         print(bad.to_string(index=False))
     return table
-
-
 def report_intensity(intensities, xlabel):
     """Print the right-axis table, and say where each method's intensity peaks.
-
     The peak matters for the volume panel specifically: SAX SPEC's summed
     intensity is not flat across the dilution series even where its peptide count
     is, and which volume maximises it is the reason the default was chosen.
@@ -334,11 +317,28 @@ def report_intensity(intensities, xlabel):
         print(f'  {r["method"]:9s} peaks at {xlabel} = {r[xlabel]} '
               f'({r["intensity_mean"]:.3f})')
     return table
-
-
-def cache_path(name):
+def cache_path(name, *, quantity_column=None):
+    """Cache file under `CACHE_DIR`, TAGGED WITH THE QUANTITY COLUMN.
+    `quantity_column` overrides the tag for a caller that deliberately deviates
+    from the global default — the relative-signal panel reads raw quantities
+    while everything else reads normalised ones, and without the override its
+    cache was written as `...norm.parquet` while holding raw data, which is worse
+    than no tag at all.
+    Every cache here holds peptide quantities or CVs derived from them, so a
+    cache built on raw quantities and one built on normalised quantities are
+    different data under the same name. Without the tag the switch to
+    `Precursor.Normalised` silently reused the raw caches and panel a came out
+    byte-identical to the raw version while panels b, c and d moved — a
+    discrepancy that only showed up because the numbers were being checked
+    against an independent computation.
+    Same failure mode as alpharaw's HDF cache keying on neither `centroided` nor
+    the reader options: if a parameter changes what is in the file, it belongs in
+    the filename.
+    """
     os.makedirs(CACHE_DIR, exist_ok=True)
-    return os.path.join(CACHE_DIR, name)
-
-
+    column = quantity_column or cf.QUANTITY_COLUMN
+    tag = {'Precursor.Normalised': 'norm',
+           'Precursor.Quantity': 'raw'}.get(column, column)
+    stem, ext = os.path.splitext(name)
+    return os.path.join(CACHE_DIR, f'{stem}.{tag}{ext}')
 core.init_plotting()

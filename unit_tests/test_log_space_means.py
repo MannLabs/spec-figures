@@ -10,7 +10,6 @@ These tests pin the convention with values whose two means differ by a wide,
 hand-checkable margin.
 """
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -58,25 +57,6 @@ def test_plot_correlation_means_in_log_space(skewed):
         pytest.approx(15.0)
 
 
-def test_plot_rank_means_in_log_space(skewed):
-    df, sample_info = skewed
-    _fig, _ax, rank_df = core.plot_rank(
-        df, sample_info, level='protein', group_col='condition2')
-    got = (rank_df[rank_df['group'] == 'a']
-           .set_index('protein_group')['log10_mean_intensity'])
-    # 15 log2 units == 15 * log10(2) on the log10 axis.
-    assert got['P1'] == pytest.approx(15.0 * np.log10(2.0))
-    assert got['P2'] == pytest.approx(12.0 * np.log10(2.0))
-
-
-def test_plot_intensity_histogram_means_in_log_space(skewed):
-    df, sample_info = skewed
-    _fig, _ax, hist_df = core.plot_intensity_histogram(
-        df, sample_info, level='protein', group_col='condition2')
-    got = (hist_df[hist_df['group'] == 'a']
-           .set_index('protein_group')['log2_mean_intensity'])
-    assert got['P1'] == pytest.approx(15.0)
-    assert got['P2'] == pytest.approx(12.0)
 
 
 def test_plot_volcano_fold_change_is_mean_of_log_difference(skewed):

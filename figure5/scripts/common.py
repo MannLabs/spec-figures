@@ -1,61 +1,37 @@
 """Shared configuration and helpers for the H032_E309 single-fiber analysis."""
 from __future__ import annotations
-
 import colorsys
 from pathlib import Path
-
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
 import spec_analytics as core
-
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-import sys as _sys
-_sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+import os
+import sys
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..')))
 import spec_config as _cfg
-ROOT     = Path(_cfg.DATA_ROOT) / 'figure5'
-OUT_ROOT = Path(_cfg.OUTPUT_ROOT) / 'figure5'
-
-REPORT     = ROOT / 'input' / 'report.parquet'   # single-fiber DIA-NN combined report
-
-DATA       = OUT_ROOT / 'data'
-PLOTS      = OUT_ROOT                                # panels b-f land in the figure folder
-SUPPORTING = OUT_ROOT / 'supporting'                 # QC and non-figure panels
-
-for _d in (DATA, PLOTS, SUPPORTING):
-    _d.mkdir(parents=True, exist_ok=True)
-
+REPORT     = Path(_cfg.input_dir(__file__, 'report.parquet'))
+DATA       = Path(_cfg.data_dir(__file__))
+PLOTS      = Path(_cfg.output_dir(__file__))
+SUPPORTING = Path(_cfg.output_dir(__file__, 'supporting'))
 DF_FILTERED   = DATA / 'df_filtered.parquet'
 SI_FILTERED   = DATA / 'sample_info_filtered.parquet'
 SI_TYPED      = DATA / 'sample_info_typed.parquet'
-
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
 TYPE_ORDER  = ['I', 'IIa', 'IIx', 'IIb']
-
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
 TONE = 0.50
-
 _TYPE_LIGHT = {'I': '#78B8E2', 'IIa': '#6BC88F', 'IIx': '#F5C842',
                'IIb': '#FA7A61', 'mixed': '#bdbdbd'}
 _TYPE_DARK  = {'I': '#3274A1', 'IIa': '#3B8056', 'IIx': '#A58219',
                'IIb': '#CC683D', 'mixed': '#737373'}
-
-
 def _blend(light, dark, t):
     a, b = np.array(mcolors.to_rgb(light)), np.array(mcolors.to_rgb(dark))
     return mcolors.to_hex(tuple((1 - t) * a + t * b))
-
-
 def _undesaturate(color, prop=0.75):
     """Invert seaborn's palette desaturation.
-
     `plot_boxplot_with_points` goes through seaborn, which multiplies a palette's
     HLS saturation by `saturation=0.75` on the way in. Passing this pre-compensated
     value makes the drawn boxes land on TYPE_COLOR instead of being desaturated a
@@ -63,34 +39,24 @@ def _undesaturate(color, prop=0.75):
     """
     h, l, s = colorsys.rgb_to_hls(*mcolors.to_rgb(color))
     return mcolors.to_hex(colorsys.hls_to_rgb(h, l, min(1.0, s / prop)))
-
-
 TYPE_COLOR = {k: _blend(_TYPE_LIGHT[k], _TYPE_DARK[k], TONE) for k in _TYPE_LIGHT}
-# Boxplot only — see `_undesaturate`. Do not use for anything drawn in matplotlib.
 TYPE_COLOR_BOX = {k: _undesaturate(v) for k, v in TYPE_COLOR.items()}
-
 MUSCLE_ORDER = ['SOL', 'EDL']
 MUSCLE_COLOR = {'SOL': core.PALETTE_SINGLE[2], 'EDL': core.PALETTE_SINGLE[0]}
-
 SLOW_COLOR     = TYPE_COLOR['I']
 FAST_COLOR     = TYPE_COLOR['IIb']
-TEXTBOOK_COLOR = core.PALETTE_SINGLE[1]   # lavender — textbook markers only
+TEXTBOOK_COLOR = core.PALETTE_SINGLE[1]
 GREY           = '#bdbdbd'
-
 MYH_GENE = {'I': 'Myh7', 'IIa': 'Myh2', 'IIx': 'Myh1', 'IIb': 'Myh4'}
-
-# Mouse UniProt accessions for the four adult skeletal MyHC isoforms.
 ACC_TO_MYH = {
-    'Q91Z83': 'Myh7',   # type I  / slow
-    'G3UW82': 'Myh2',   # type IIa
-    'Q5SX40': 'Myh1',   # type IIx
-    'Q5SX39': 'Myh4',   # type IIb
+    'Q91Z83': 'Myh7',
+    'G3UW82': 'Myh2',
+    'Q5SX40': 'Myh1',
+    'Q5SX39': 'Myh4',
 }
 MYH_TO_TYPE = {'Myh7': 'I', 'Myh2': 'IIa', 'Myh1': 'IIx', 'Myh4': 'IIb'}
 MYH_ORDER   = ['Myh7', 'Myh2', 'Myh1', 'Myh4']
-
 EXCLUDE_GENES = {'Myh7', 'Myh2', 'Myh1', 'Myh4', 'Myh6', 'Myh8', 'Myh3', 'Myh13'}
-
 TEXTBOOK_SLOW = {'Atp2a2', 'Myl2', 'Myl3', 'Casq2', 'Tnnc1', 'Tnni1', 'Tnnt1',
                  'Mb', 'Myoz2', 'Lmod2', 'Tpm3', 'Mybpc1', 'Cox7a1'}
 TEXTBOOK_FAST = {'Atp2a1', 'Casq1', 'Tnnc2', 'Tnni2', 'Tnnt3', 'Pvalb',
@@ -98,15 +64,11 @@ TEXTBOOK_FAST = {'Atp2a1', 'Casq1', 'Tnnc2', 'Tnni2', 'Tnnt3', 'Pvalb',
 TEXTBOOK = TEXTBOOK_SLOW | TEXTBOOK_FAST
 TEXTBOOK_NOTE = ('* = classical fiber-type marker '
                  '(Schiaffino & Reggiani 2011, Murgia 2015/2017/2021).')
-
 MYHC_MARKER_SLOW = {'Myh7', 'Myh7b'}
 MYHC_MARKER_FAST = {'Myh4'}
 TEXTBOOK_DE_SLOW = TEXTBOOK_SLOW | MYHC_MARKER_SLOW
 TEXTBOOK_DE_FAST = TEXTBOOK_FAST | MYHC_MARKER_FAST
 TEXTBOOK_DE = TEXTBOOK_DE_SLOW | TEXTBOOK_DE_FAST
-
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
 MIN_COVERAGE_OVERALL = 0.30
 MIN_COVERAGE_GROUP   = 0.50
 MIN_VALID_PER_ARM    = 3
@@ -114,19 +76,12 @@ SCORE_GROUPS         = ('I', 'IIa', 'IIb')
 N_TOP                = 15
 FC_THRESHOLD         = float(np.log2(1.5))
 PADJ_THRESHOLD       = 0.05
-
-
-# ---------------------------------------------------------------------------
-# Setup / style
-# ---------------------------------------------------------------------------
 def init(panel=(4, 4)):
     """House plotting defaults + make sure the output folders exist."""
     core.init_plotting()
     core.set_default_panel_size(*panel)
     for d in (DATA, PLOTS, SUPPORTING):
         d.mkdir(exist_ok=True)
-
-
 def unbold(*axes):
     """House style bolds titles only; several core plots bold axis labels."""
     for ax in axes:
@@ -134,38 +89,26 @@ def unbold(*axes):
         ax.yaxis.label.set_fontweight('normal')
         for t in (*ax.get_xticklabels(), *ax.get_yticklabels()):
             t.set_fontweight('normal')
-
-
 def despine(*axes):
     for ax in axes:
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-
-
 def lighten(color, factor=0.45):
     """Blend a colour towards white — the house 'secondary series' variant."""
     c = mcolors.to_rgb(color)
     return tuple(1 - (1 - ch) * (1 - factor) for ch in c)
-
-
-# ---------------------------------------------------------------------------
-# Figure output contract: PDF + PNG(dpi=300) + <stem>_sourcedata.csv
-# ---------------------------------------------------------------------------
 def save_panel(fig, stem, sourcedata, *, out_dir=None, dpi=300):
     """Save one panel three ways and return the source-data frame.
-
     `sourcedata` holds the values actually drawn — pass a DataFrame, or a
     dict of {series_name: DataFrame} which is concatenated with a leading
     `series` column. It is never optional: every panel in this project shows
     measured data.
-
     Destination follows the stem: anything named `supporting_*` is not part of
     figure 5 and goes to supporting\\, everything else to the figure folder. That
     keeps the routing in one place instead of at every call site.
     """
     out_dir = Path(out_dir) if out_dir is not None else (
         SUPPORTING if stem.startswith('supporting') else PLOTS)
-
     if out_dir == PLOTS:
         for ax in fig.axes:
             title = ax.get_title()
@@ -173,7 +116,6 @@ def save_panel(fig, stem, sourcedata, *, out_dir=None, dpi=300):
                 print(f'  title -> caption: "{title}"')
                 ax.set_title('')
     out_dir.mkdir(exist_ok=True)
-
     if isinstance(sourcedata, dict):
         frames = []
         for name, frame in sourcedata.items():
@@ -183,57 +125,37 @@ def save_panel(fig, stem, sourcedata, *, out_dir=None, dpi=300):
         sd = pd.concat(frames, ignore_index=True)
     else:
         sd = pd.DataFrame(sourcedata)
-
     fig.savefig(out_dir / f'{stem}.pdf', bbox_inches='tight')
     fig.savefig(out_dir / f'{stem}.png', dpi=dpi, bbox_inches='tight')
     sd.to_csv(out_dir / f'{stem}_sourcedata.csv', index=False)
     plt.close(fig)
     print(f'Wrote: {out_dir.name}/{stem}.pdf / .png / _sourcedata.csv')
     return sd
-
-
-# ---------------------------------------------------------------------------
-# Loading
-# ---------------------------------------------------------------------------
 def load_filtered(columns=None):
     """Post-outlier-filter long precursor table (written by step 01)."""
     return pd.read_parquet(DF_FILTERED, columns=columns)
-
-
 def load_typed():
     """sample_info with fiber-type calls (written by step 02)."""
     return pd.read_parquet(SI_TYPED)
-
-
-# ---------------------------------------------------------------------------
-# Protein-group matrix, coverage filter, slow/fast marker selection
-# ---------------------------------------------------------------------------
 def pg_log2_matrix(df):
     """(log2 pg_intensity matrix [protein_group x run], protein_group -> gene).
-
     One row per (run, protein_group); zeros are already NaN from the loader,
     and anything non-positive is dropped before the log.
     """
     df = df[df['genes'].notna() & (df['genes'].str.len() > 0)].copy()
     df['_gene'] = df['genes'].str.split(';').str[0]
-
     pg_wide = (df.drop_duplicates(['run', 'protein_group'])
                  .pivot(index='protein_group', columns='run',
                         values='pg_intensity'))
     pg_wide = np.log2(pg_wide.where(pg_wide > 0))
-
     pg_to_gene = (df.groupby('protein_group')['_gene']
                     .agg(lambda s: next((v for v in s if v), 'unannot')))
     pg_to_gene.name = 'gene'
     return pg_wide, pg_to_gene
-
-
 def type_runs(sample_info, types=TYPE_ORDER):
     """{fiber_type: [run, ...]} for the pure-type fibers."""
     si = sample_info.set_index('run')
     return {t: si.index[si['fiber_type'] == t].tolist() for t in types}
-
-
 def coverage_mask(pg_wide, sample_info):
     """The shared >=30%-overall AND >=50%-in-any-pure-group validity rule."""
     runs = type_runs(sample_info, SCORE_GROUPS)
@@ -243,17 +165,13 @@ def coverage_mask(pg_wide, sample_info):
         axis=1)
     return ((cov_total >= MIN_COVERAGE_OVERALL)
             & (cov_group.max(axis=1) >= MIN_COVERAGE_GROUP))
-
-
 class MarkerSelection:
     """The slow-vs-fast marker selection: pure type I versus pure type IIb.
-
     **`score` is the log2 fold change, and only BH-significant proteins are
     ranked.** Both of those are round-2 corrections; the earlier version ranked on
     the difference of per-type mean z-scores, with the z taken across all 116
     fibers, and applied no significance requirement at all. Two problems with it,
     both measured rather than suspected:
-
     * **The top of that ranking was not reproducible.** The 15 slow scores spanned
       0.184 units (2.639 down to 2.455), so the set was a near-tie. Recomputing the
       z over the I+IIb subset only — a change any referee might ask for — replaced
@@ -268,12 +186,10 @@ class MarkerSelection:
       arm, and all three are absent from the differential-expression table because
       that requires `MIN_VALID_PER_ARM` values in both arms. Applying the same
       requirement here means nothing is named that is not also tested.
-
     The Welch t was considered as the ranking statistic and rejected: it is no more
     stable than the old score, and with a handful of observations in one arm the
     within-group variance is underestimated, which inflates it (Ccdc167: type-I SD
     0.219 from 6 values against a 0.328 median across proteins, giving t = -17.3).
-
     A both-arms *coverage* threshold of 50 % was also considered and rejected. It
     would remove on/off proteins — present in most fast fibers, absent from most
     slow ones — which is a real biological pattern rather than a defect, so the gate
@@ -281,38 +197,31 @@ class MarkerSelection:
     whose signal is presence/absence are better served by a test on detection
     (Fisher exact on the 2x2 of detected/not) reported in the text than by an
     abundance ranking.
-
     IIa and IIx do not enter the contrast. The four-type resolution shows up in the
     composition and PCA panels instead.
     """
-
     def __init__(self, df, sample_info):
         from scipy import stats as _stats
         from statsmodels.stats.multitest import multipletests
-
         pg_wide, pg_to_gene = pg_log2_matrix(df)
         self.pg_to_gene = pg_to_gene
         self.n_pg_quantified = pg_wide.shape[0]
         self.n_fibers = pg_wide.shape[1]
-
         self.pg_wide_all = pg_wide
         self.pg_wide = pg_wide.loc[coverage_mask(pg_wide, sample_info)]
         self.pg_z = (self.pg_wide.sub(self.pg_wide.mean(axis=1), axis=0)
                                  .div(self.pg_wide.std(axis=1), axis=0))
-
         self.runs = type_runs(sample_info)
         self.mean_z = {t: self.pg_z[r].mean(axis=1) if r else
                           pd.Series(np.nan, index=self.pg_z.index)
                        for t, r in self.runs.items()}
-
         a, b = self.pg_wide[self.runs['I']], self.pg_wide[self.runs['IIb']]
         testable = ((a.notna().sum(axis=1) >= MIN_VALID_PER_ARM)
                     & (b.notna().sum(axis=1) >= MIN_VALID_PER_ARM)
                     & ~pg_to_gene.reindex(self.pg_wide.index)
                                  .isin(EXCLUDE_GENES).fillna(False))
         a, b = a[testable], b[testable]
-
-        log2fc = a.mean(axis=1) - b.mean(axis=1)      # + = up in type I (slow)
+        log2fc = a.mean(axis=1) - b.mean(axis=1)
         t_stat, p_raw = _stats.ttest_ind(a, b, axis=1, equal_var=False,
                                         nan_policy='omit')
         self.stats = pd.DataFrame({
@@ -327,31 +236,23 @@ class MarkerSelection:
         self.stats['significant'] = (
             (self.stats['padj'] < PADJ_THRESHOLD)
             & (self.stats['log2fc'].abs() > FC_THRESHOLD))
-
-        # `score` stays the attribute callers read; it is now the fold change.
         eligible = self.stats[self.stats['significant']]
         self.score = eligible['log2fc']
         self.top_slow = list(self.score.nlargest(N_TOP).index)
         self.top_fast = list(self.score.nsmallest(N_TOP).index)
-
-    # -- convenience --------------------------------------------------------
     def gene(self, pg):
         return self.pg_to_gene.get(pg, '?')
-
     def label(self, pg, side):
         """Gene name, with '*' appended for canonical markers."""
         g = self.gene(pg)
         book = TEXTBOOK_SLOW if side == 'slow' else TEXTBOOK_FAST
         return f'{g} *' if g in book else g
-
     def pi_per_type(self, rows):
         """pi = log2FC x -log10(p) per fiber type (Xiao et al. 2014).
-
         log2FC = mean log2 intensity in type X minus the mean over all OTHER
         pure-type fibers; p from an uncorrected Welch t-test on the same split.
         """
         from scipy.stats import ttest_ind
-
         out = {}
         for t, runs_in in self.runs.items():
             runs_out = [r for k, rs in self.runs.items() if k != t for r in rs]
@@ -368,33 +269,24 @@ class MarkerSelection:
                 pvals.append(max(p, np.finfo(float).tiny))
             out[t] = log2fc * -np.log10(pd.Series(pvals, index=rows))
         return out
-
-
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
 DE_COLUMNS = ['run', 'protein_group', 'genes', 'pg_intensity', 'engine']
 DE_KWARGS = dict(
     level='protein',
     group_col='fiber_type',
-    condition_a='I',        # positive log2FC = up in slow
+    condition_a='I',
     condition_b='IIb',
     min_valid_per_condition=3,
     fc_threshold=FC_THRESHOLD,
     padj_threshold=PADJ_THRESHOLD,
 )
-
-
 def de_input(df, sample_info):
     """Long df restricted to the coverage-passing protein groups, ready for
     `core.plot_volcano(**common.DE_KWARGS)`."""
     pg_wide, _ = pg_log2_matrix(df)
     keep = pg_wide.index[coverage_mask(pg_wide, sample_info)]
     return df[df['protein_group'].isin(keep)]
-
-
 def fiber_sort_order(sample_info):
     """Fibers ordered I -> IIa -> IIx -> IIb -> mixed, then slow->fast within.
-
     Keeps each pure-type block contiguous so the span labels above the
     composition strip and the heatmap are unambiguous.
     """
@@ -409,8 +301,6 @@ def fiber_sort_order(sample_info):
              .sort_values(['type_rank', 'score'], ascending=[True, False])
              .index.tolist())
     return order, fr
-
-
 def type_spans(fiber_types, min_n=5):
     """Contiguous [(i0, i1, type)] runs of a fiber-type sequence."""
     bounds, prev = [], object()
@@ -421,17 +311,11 @@ def type_spans(fiber_types, min_n=5):
     bounds.append((len(fiber_types), None))
     return [(i0, i1, t) for (i0, t), (i1, _) in zip(bounds, bounds[1:])
             if t is not None and i1 - i0 >= min_n]
-
-
-# ---------------------------------------------------------------------------
-# Shared plot helpers
-# ---------------------------------------------------------------------------
 def overlap_bars(ax, order, totals_by_cond, subset_by_cond, palette, *,
                  y_label, title, subset_label='CV<20%'):
     """House overlapping-bar panel: light bar = mean per-replicate total,
     dark bar of the same hue = the group-level subset, individual replicate
     totals scattered on top.
-
     `core.plot_overlapping_bars` does the same thing but builds its own
     figure; this variant draws onto a supplied axis so it can sit in a
     multi-panel row.
@@ -469,35 +353,26 @@ def overlap_bars(ax, order, totals_by_cond, subset_by_cond, palette, *,
     ax.tick_params(axis='both', labelsize=10)
     despine(ax)
     return pd.DataFrame(rows)
-
-
 def annotate_in_margins(ax, right_hits, left_hits, *, color='black',
                         fontsize=7.5, expand=0.26, fontweight='bold',
                         leader_lw=0.4, leader_alpha=0.55):
     """Label points in the left/right margin with leader lines to the dot.
-
     `right_hits` / `left_hits` are [(label, x, y), ...]. Labels sit outside
     the data envelope so the leader line never has to cross the dense cluster;
     each label stays as close to its own dot as the row spacing allows
     (greedy top-down placement), which keeps the lines short and readable.
-
     x-limits are expanded first so the labels stay inside the visible axes.
     """
     xlim, ylim = ax.get_xlim(), ax.get_ylim()
     x_span, y_span = xlim[1] - xlim[0], ylim[1] - ylim[0]
     data_lo = min([x for _, x, _ in right_hits + left_hits], default=xlim[0])
     data_hi = max([x for _, x, _ in right_hits + left_hits], default=xlim[1])
-
     ax.set_xlim(xlim[0] - (x_span * expand if left_hits else 0),
                 xlim[1] + (x_span * expand if right_hits else 0))
-
-    pad = y_span * 0.035           # keeps the bottom label clear of the x-axis
+    pad = y_span * 0.035
     y_top, y_bot = ylim[1] - pad, ylim[0] + pad
-
-    # One text row, in data units — the gap below which two labels would touch.
     ax_height_pt = ax.get_position().height * ax.figure.get_figheight() * 72
     row_gap = fontsize * 1.45 / ax_height_pt * y_span
-
     for hits, side in ((right_hits, 'right'), (left_hits, 'left')):
         if not hits:
             continue
@@ -506,7 +381,6 @@ def annotate_in_margins(ax, right_hits, left_hits, *, color='black',
         margin = x_span * 0.09
         x_label = data_hi + margin if side == 'right' else data_lo - margin
         ha = 'left' if side == 'right' else 'right'
-
         prev = y_top + min_gap
         n = len(hits)
         for i, (label, x_data, y_data) in enumerate(hits):

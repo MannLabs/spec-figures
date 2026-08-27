@@ -3,23 +3,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.gridspec import GridSpec
-
 import common as C
-
 C.init()
-
 sample_info = C.load_typed()
 fiber_order, fractions = C.fiber_sort_order(sample_info)
-
 fig = plt.figure(figsize=(2.7, 3))
 gs = GridSpec(3, 1, height_ratios=[0.75, 0.40, 1.00], hspace=0.05,
               left=0.09, right=0.98, top=0.95, bottom=0.04)
-
 ax_typespan = fig.add_subplot(gs[0])
 ax_typespan.set_xlim(-0.5, len(fiber_order) - 0.5)
 ax_typespan.set_ylim(0, 1)
 ax_typespan.axis('off')
-
 ax_muscle = fig.add_subplot(gs[1], sharex=ax_typespan)
 muscle = sample_info.set_index('run').loc[fiber_order, 'condition1']
 ax_muscle.bar(range(len(fiber_order)), [1] * len(fiber_order),
@@ -37,7 +31,6 @@ ax_muscle.legend([plt.Rectangle((0, 0), 1, 1, color=C.MUSCLE_COLOR[m])
                  loc='lower left', bbox_to_anchor=(1.005, 0), frameon=False,
                  fontsize=8, title='Muscle', title_fontsize=8,
                  labelspacing=0.2, handletextpad=0.3, borderaxespad=0)
-
 ax_stack = fig.add_subplot(gs[2], sharex=ax_typespan)
 fracs_ordered = fractions.loc[fiber_order].fillna(0)
 x = np.arange(len(fiber_order))
@@ -54,16 +47,13 @@ C.despine(ax_stack)
 ax_stack.legend(loc='lower left', bbox_to_anchor=(1.005, 0), frameon=False,
                 fontsize=8, title='MyHC', title_fontsize=8,
                 labelspacing=0.2, handletextpad=0.4, borderaxespad=0)
-
 typed = sample_info.set_index('run').loc[fiber_order, 'fiber_type']
 for i0, i1, t in C.type_spans(typed.tolist(), min_n=5):
     ax_typespan.text((i0 + i1 - 1) / 2.0, 0.05, f'{t}\n{i1 - i0}',
                      ha='center', va='bottom', fontsize=9, fontweight='bold',
                      linespacing=1.15,
                      color=C.TYPE_COLOR.get(t, 'black'))
-
 C.unbold(ax_stack, ax_muscle)
-
 fiber_index = {r: i for i, r in enumerate(fiber_order)}
 sd_stack = (fracs_ordered.rename_axis('run').reset_index()
             .melt(id_vars='run', var_name='fiber_type', value_name='myhc_fraction'))

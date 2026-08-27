@@ -1,19 +1,69 @@
-"""Volcano plot (limma moderated t-test).
-
-Extracted from _core.py (REFACTOR_PLAN.md step 5); behaviour unchanged. Heavy plotting deps (matplotlib, seaborn, scipy, sklearn) are imported lazily inside the functions."""
-
+"""Volcano plot (limma moderated t-test)."""
 from __future__ import annotations
-
 import warnings
-
 import numpy as np
 import pandas as pd
-
 from ._style import (_empty_plot_with_message, _hide_top_right_spines, _filter_pivot_by_validity, _LEVEL_COLS, _resolve_panel_size)
 from ..stats import _ebayes_moderated_p
 from ..filters import filter_runs
-
-
+def _annotate_without_overlap(ax, points, *, fontsize=8, pad_pt=1.5,
+                              max_shift_pt=90):
+    """Label (x, y, text) points, nudging each one up until it stops colliding.
+    A volcano's labels cluster because the features worth naming share both
+    extremes: BH ties them at one adjusted p-value, so they sit on a single
+    horizontal line and their text blocks overlap. Placing the label at a fixed
+    offset from its point is then unreadable however few are drawn.
+    Greedy and deliberately simple: sort top-down, keep the accepted boxes, and
+    raise each new label in half-line steps until it clears them. Boxes are
+    estimated (0.6 em per character) rather than measured, because a real
+    measurement needs a draw and the placement only has to be approximately
+    right. A label that had to move gets a thin leader line back to its point,
+    so a shifted label is never read as belonging to a neighbour.
+    """
+    if not points:
+        return
+    fig = ax.figure
+    px_per_pt = fig.dpi / 72.0
+    line_pt = fontsize * 1.25
+    def place():
+        """(x, y, text, dx, dy) per point, plus the highest top reached."""
+        out, placed, top = [], [], -np.inf
+        for x, y, text in sorted(points, key=lambda p: -p[1]):
+            anchor = ax.transData.transform((x, y)) / px_per_pt
+            w = len(text) * 0.6 * fontsize
+            dx = 5 if x > 0 else -5
+            left0 = anchor[0] + (dx if x > 0 else dx - w)
+            dy = 5
+            while dy <= max_shift_pt:
+                bottom = anchor[1] + dy
+                box = (left0, bottom, left0 + w, bottom + line_pt)
+                if not any(box[0] < o[2] + pad_pt and o[0] < box[2] + pad_pt
+                           and box[1] < o[3] + pad_pt and o[1] < box[3] + pad_pt
+                           for o in placed):
+                    placed.append(box)
+                    top = max(top, box[3])
+                    break
+                dy += line_pt * 0.75
+            out.append((x, y, text, dx, dy))
+        return out, top
+    labels, top_pt = place()
+    for _ in range(3):
+        y_top = ax.transData.inverted().transform(
+            (0, (top_pt + line_pt * 1.2) * px_per_pt))[1]
+        lo, hi = ax.get_ylim()
+        if y_top <= hi:
+            break
+        ax.set_ylim(lo, y_top)
+        labels, top_pt = place()
+    for x, y, text, dx, dy in labels:
+        ax.annotate(
+            text, (x, y), fontsize=fontsize, alpha=0.8,
+            ha='left' if x > 0 else 'right', va='bottom',
+            xytext=(dx, dy), textcoords='offset points',
+            arrowprops=(dict(arrowstyle='-', linewidth=0.4, color='0.55',
+                             shrinkA=0, shrinkB=1.5, alpha=0.8)
+                        if dy > 5 else None),
+        )
 def plot_volcano(
     df,
     sample_info,
@@ -22,7 +72,7 @@ def plot_volcano(
     group_col='condition2',
     condition_a=None,
     condition_b=None,
-    fc_threshold=0.585,   # log2(1.5)
+    fc_threshold=0.585,
     padj_threshold=0.05,
     min_valid_per_condition=3,
     min_valid_fraction=None,
@@ -41,6 +91,7 @@ def plot_volcano(
     label_fontsize=10,
     tick_fontsize=10,
     legend_fontsize=8,
+    legend_loc='upper right',
     title_fontsize=11,
     title=None,
     method='welch',
@@ -48,23 +99,19 @@ def plot_volcano(
     """
     Volcano plot comparing two values of `group_col` (default `condition2`) at
     the chosen quantitation level.
-
     Pass a single-engine df. For each feature that has >= `min_valid_per_condition`
     non-zero intensity values in BOTH conditions, computes log2 fold-change
     (A/B) and a per-feature test on log2 intensities; p-values are adjusted with
     Benjamini-Hochberg.
-
     Under both methods `log2_fc` is the **difference of mean log2 intensities**
     (geometric), consistent with the statistic each test is computed on, rather
     than log2 of the ratio of linear means.
-
     `method`:
       'welch'     (default) ordinary Welch two-sample t-test per feature.
       'moderated' empirical-Bayes variance-moderated t-test (limma, Smyth 2004).
         Borrows variance across all features via an inverse-chi-square prior;
         far more powerful with few replicates (n~3), where the per-feature
         variance estimate is too noisy for Welch + BH.
-
     Parameters:
       level: 'precursor' | 'peptide' | 'protein'  (default 'protein').
         At non-protein levels the row id column is named after the level
@@ -81,9 +128,14 @@ def plot_volcano(
         fraction. Useful for many-condition datasets — filters out features
         that are unreliable everywhere even if they squeak past the
         condition-A/B count requirement.
-
     All filters combine as AND.
-
+      label_top_n: how many significant features to name PER DIRECTION, so
+        `label_top_n=5` labels 5 Up and 5 Down. Per direction rather than
+        overall because BH adjustment ties many features at the same adjusted
+        p-value, and a single `nsmallest` over the pooled set then returns an
+        arbitrary group that can sit entirely on one side. Ranked by p_adj,
+        ties broken by |log2_fc| — with the ties above, significance alone
+        cannot order them and the largest effect is the useful pick.
     Returns (fig, ax, volcano_df). volcano_df columns:
       <id_col>, gene, mean_a, mean_b, log2_fc, p_value, p_adj,
       neg_log10_padj, n_a, n_b, significance ('Up' | 'Down' | 'NS'),
@@ -92,20 +144,16 @@ def plot_volcano(
     import matplotlib.pyplot as plt
     from scipy import stats
     from statsmodels.stats.multitest import multipletests
-
     if level not in _LEVEL_COLS:
         raise ValueError(
             f"level must be one of {sorted(_LEVEL_COLS)}, got {level!r}"
         )
     id_col, intensity_col = _LEVEL_COLS[level]
-
     if df['engine'].nunique() > 1:
         raise ValueError('plot_volcano: df contains multiple engines; '
                          'use core.split_by_engine first')
     if group_col not in sample_info.columns:
         raise ValueError(f'group_col {group_col!r} missing from sample_info')
-
-    # Pick conditions if not provided.
     available = list(sample_info[group_col].drop_duplicates())
     if condition_a is None or condition_b is None:
         if len(available) != 2:
@@ -117,12 +165,10 @@ def plot_volcano(
             condition_a = available[0]
         if condition_b is None:
             condition_b = available[1]
-
     runs_a = sample_info.loc[sample_info[group_col] == condition_a, 'run'].tolist()
     runs_b = sample_info.loc[sample_info[group_col] == condition_b, 'run'].tolist()
     if not runs_a or not runs_b:
         raise ValueError('one or both conditions matched zero runs')
-
     df = filter_runs(df, sample_info)
     pivot = df.pivot_table(
         index=id_col, columns='run',
@@ -130,10 +176,6 @@ def plot_volcano(
     )
     cols_a = [r for r in runs_a if r in pivot.columns]
     cols_b = [r for r in runs_b if r in pivot.columns]
-
-    # Apply optional fraction filters (overall + per-group). The per-condition
-    # count requirement (min_valid_per_condition) is enforced inside the t-test
-    # loop below.
     if min_valid_fraction is not None or min_valid_fraction_in_any_group is not None:
         compared_runs = cols_a + cols_b
         pivot_compared = pivot[compared_runs]
@@ -146,53 +188,32 @@ def plot_volcano(
             log_prefix=f'[volcano:{level}]',
         )
         pivot = pivot.loc[pivot_compared.index]
-
-    # Map id_col -> first non-empty gene for labels (gene info travels per row
-    # at every level — derived from the parent protein_group).
     gene_map = (df.assign(_g=df['genes'].astype(str).str.split(';').str[0])
                   .groupby(id_col)['_g'].agg(
                       lambda s: next((v for v in s if v), '')))
-
-    # Vectorized Welch t-test over all features at once. Verified bit-identical
-    # to the per-row loop on the test data; ~4-5x faster at precursor / peptide
-    # scale where the feature count is in the tens of thousands.
     mat_a = pivot[cols_a].astype(float).to_numpy()
     mat_b = pivot[cols_b].astype(float).to_numpy()
-    # Treat zero as missing — keeps log2 finite and matches the loop's filter.
     mat_a = np.where(mat_a > 0, mat_a, np.nan)
     mat_b = np.where(mat_b > 0, mat_b, np.nan)
-
     n_a = np.sum(~np.isnan(mat_a), axis=1)
     n_b = np.sum(~np.isnan(mat_b), axis=1)
     enough = (n_a >= min_valid_per_condition) & (n_b >= min_valid_per_condition)
-
     if method not in ('welch', 'moderated'):
         raise ValueError(f"method must be 'welch' or 'moderated', got {method!r}")
-
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=RuntimeWarning)
         mean_a = np.nanmean(mat_a, axis=1)
         mean_b = np.nanmean(mat_b, axis=1)
         if method == 'moderated':
-            # empirical-Bayes moderated t (limma); log2_fc = mean-of-log diff,
-            # consistent with the test statistic.
             log2_fc, p_val, _prior_df = _ebayes_moderated_p(
                 mat_a, mat_b, n_a, n_b, enough)
         else:
-            # log2_fc is the difference of mean log2 intensities (geometric),
-            # matching the statistic the Welch test below is computed on. It
-            # used to be log2(mean_a / mean_b) — log of the linear mean — which
-            # left the plotted effect size and the p-value measuring slightly
-            # different things.
             log2_fc = (np.nanmean(np.log2(mat_a), axis=1)
                        - np.nanmean(np.log2(mat_b), axis=1))
-            # axis=1 + nan_policy='omit' applies a per-row Welch test, omitting
-            # NaNs independently in each row.
             t_result = stats.ttest_ind(np.log2(mat_a), np.log2(mat_b),
                                        axis=1, equal_var=False,
                                        nan_policy='omit')
             p_val = np.asarray(t_result.pvalue)
-
     ids = pivot.index.to_numpy()
     keep = enough & np.isfinite(p_val) & np.isfinite(log2_fc)
     if not keep.any():
@@ -213,7 +234,6 @@ def plot_volcano(
             'significance', 'highlighted',
         ])
         return fig, ax, empty
-
     kept_ids = ids[keep]
     volcano_df = pd.DataFrame({
         id_col: kept_ids,
@@ -225,11 +245,9 @@ def plot_volcano(
         'n_a': n_a[keep].astype(int),
         'n_b': n_b[keep].astype(int),
     })
-
     _, p_adj, *_ = multipletests(volcano_df['p_value'], method='fdr_bh')
     volcano_df['p_adj'] = p_adj
     volcano_df['neg_log10_padj'] = -np.log10(p_adj)
-
     def classify(r):
         if r['p_adj'] < padj_threshold:
             if r['log2_fc'] > fc_threshold:
@@ -238,25 +256,19 @@ def plot_volcano(
                 return 'Down'
         return 'NS'
     volcano_df['significance'] = volcano_df.apply(classify, axis=1)
-
     if highlight_genes:
         upper = {g.upper() for g in highlight_genes}
         volcano_df['highlighted'] = volcano_df['gene'].fillna('').astype(str).str.upper().isin(upper)
     else:
         volcano_df['highlighted'] = False
-
     palette = palette if palette is not None else ['#E74C3C', '#3498DB']
     colors = {'Up': palette[0], 'Down': palette[1], 'NS': '#CCCCCC'}
     counts = volcano_df['significance'].value_counts()
-
     fig, ax = plt.subplots(figsize=_resolve_panel_size(figsize))
     for cat in ('NS', 'Down', 'Up'):
         sub = volcano_df[(volcano_df['significance'] == cat) & (~volcano_df['highlighted'])]
         if sub.empty:
             continue
-        # Significant dots get a thin black edge so they read clearly against
-        # the grey NS background and the white page; NS stay edgeless so the
-        # backdrop doesn't dominate.
         is_sig = cat != 'NS'
         ax.scatter(
             sub['log2_fc'], sub['neg_log10_padj'],
@@ -280,18 +292,19 @@ def plot_volcano(
     ax.axvline(fc_threshold, color='gray', linestyle='--', linewidth=1, alpha=0.7)
     ax.axvline(-fc_threshold, color='gray', linestyle='--', linewidth=1, alpha=0.7)
     ax.axvline(0, color='black', linestyle='-', linewidth=0.5, alpha=0.3)
-
-    # mathtext subscripts render in the matching DejaVu math font (the default),
-    # so log2 / log10 get proper subscripts and the PDF stays single-font.
-    ax.set_xlabel(f'log₂(fold change)  [{condition_a} / {condition_b}]',
-                  fontsize=label_fontsize)
+    ratio = f'[{condition_a} / {condition_b}]'
+    xlabel = f'log₂(fold change)  {ratio}'
+    if len(xlabel) * 0.6 * label_fontsize / 72 > fig.get_size_inches()[0]:
+        xlabel = f'log₂(fold change)\n{ratio}'
+    ax.set_xlabel(xlabel, fontsize=label_fontsize)
     ax.set_ylabel('−log₁₀(adjusted p-value)', fontsize=label_fontsize)
     ax.tick_params(axis='both', labelsize=tick_fontsize)
     if title is None:
         title = f'Volcano: {condition_a} vs {condition_b}'
     ax.set_title(title, fontsize=title_fontsize, fontweight='bold', pad=8)
-    ax.legend(loc='upper right', fontsize=legend_fontsize, frameon=False)
-
+    ax.legend(loc=legend_loc, fontsize=legend_fontsize, frameon=False)
+    if (label_top_n > 0) or (label_highlighted and highlight_genes):
+        ax.margins(x=0.10, y=0.06)
     if label_highlighted and highlight_genes:
         for _, row in volcano_df[volcano_df['highlighted']].iterrows():
             ax.annotate(
@@ -303,17 +316,20 @@ def plot_volcano(
                 textcoords='offset points',
             )
     if label_top_n > 0:
-        sig = volcano_df[(volcano_df['significance'] != 'NS') & (~volcano_df['highlighted'])]
-        for _, row in sig.nsmallest(label_top_n, 'p_adj').iterrows():
-            label = str(row['gene']) or str(row[id_col])
-            ax.annotate(
-                label, (row['log2_fc'], row['neg_log10_padj']),
-                fontsize=8, alpha=0.8,
-                ha='left' if row['log2_fc'] > 0 else 'right', va='bottom',
-                xytext=(5 if row['log2_fc'] > 0 else -5, 5),
-                textcoords='offset points',
-            )
-
+        sig = volcano_df[(volcano_df['significance'] != 'NS')
+                         & (~volcano_df['highlighted'])]
+        ranked = sig.assign(_abs_fc=sig['log2_fc'].abs())
+        picks = [g.sort_values(['p_adj', '_abs_fc'], ascending=[True, False])
+                  .head(label_top_n)
+                 for _, g in ranked.groupby('significance', sort=False)]
+        chosen = pd.concat(picks) if picks else sig.iloc[:0]
+        _annotate_without_overlap(
+            ax,
+            [(float(r['log2_fc']), float(r['neg_log10_padj']),
+              str(r['gene']) or str(r[id_col]))
+             for _, r in chosen.iterrows()],
+            fontsize=8,
+        )
     _hide_top_right_spines(ax)
     plt.tight_layout()
     return fig, ax, volcano_df

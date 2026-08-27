@@ -15,7 +15,7 @@ SPEC_code/
 ├── dist/                             pre-built wheel, for sharing
 ├── src/spec_analytics/               the analysis library
 ├── figure1/ … figure6/scripts/       one script per panel or panel group
-└── supplementary_figure1/ … 6/scripts/
+└── supplementary_figure1/ … 7/scripts/
 ```
 
 ---
@@ -119,7 +119,7 @@ Each script is standalone and is run **from its own directory**:
 
 ```bash
 cd figure2/scripts
-python panel_b_sample_volume.py
+python panel_b_sample_volume_peptides.py
 ```
 
 It prints its summary numbers to the screen and writes three files to
@@ -127,12 +127,33 @@ It prints its summary numbers to the screen and writes three files to
 
 | file | what it is |
 |---|---|
-| `panel_b_sample_volume.pdf` | the panel, vector, with editable text |
-| `panel_b_sample_volume.png` | the same at 300 dpi |
-| `panel_b_sample_volume_sourcedata.csv` | the exact values plotted |
+| `panel_b_sample_volume_peptides.pdf` | the panel, vector, with editable text |
+| `panel_b_sample_volume_peptides.png` | the same at 300 dpi |
+| `panel_b_sample_volume_peptides_sourcedata.csv` | the exact values plotted |
 
 Summary tables are printed rather than saved, because they are cheap aggregations of
 what is already in the source-data file.
+
+### A script is named after the panel it draws, not the folder it sits in
+
+Every script's file name carries the panel it produces, so
+`figure3/scripts/panel_c_channel_overlap.py` draws Fig. 3c and
+`supplementary_figure4/scripts/suppl4_a_recovery_volume.py` draws
+Supplementary Fig. 4a.
+
+Six of them sit in a folder that does not match that name, and deliberately:
+`spec_config` resolves a script's **input** directory from the folder it lives in,
+so a supplementary panel built from a main figure's search output has to stay
+beside that figure's data. Those six write across into the supplement:
+
+| script | draws | writes into |
+|---|---|---|
+| `figure1/scripts/suppl2_a_lc_comparison.py` | Suppl. Fig. 2a | `supplementary_figure2/` |
+| `figure1/scripts/suppl2_b_lc_correlation.py` | Suppl. Fig. 2b | `supplementary_figure2/` |
+| `figure2/scripts/suppl3_ab_kinetics.py` | Suppl. Fig. 3a, b | `supplementary_figure3/` |
+| `figure2/scripts/suppl4_b_volume_protein_groups.py` | Suppl. Fig. 4b | `supplementary_figure4/` |
+| `figure2/scripts/suppl4_c_input_protein_groups.py` | Suppl. Fig. 4c | `supplementary_figure4/` |
+| `figure2/scripts/suppl4_d_detergent_protein_groups.py` | Suppl. Fig. 4d | `supplementary_figure4/` |
 
 ### Or use the notebooks
 
@@ -141,7 +162,7 @@ what is already in the source-data file.
 | notebook | what it does |
 |---|---|
 | `00_getting_started.ipynb` | checks the install, prints the resolved paths, reports which figure inputs are present, then builds one panel. Under a minute — run this first. |
-| `01_all_figures.ipynb` | rebuilds every panel in the paper, one cell per figure, showing each panel inline. Roughly 15 minutes end to end. |
+| `01_all_figures.ipynb` | rebuilds every panel in the paper, one cell per figure, showing each panel inline. Roughly 15 minutes end to end. Generated together with the scripts, so it cannot name a script this repository does not carry. |
 
 ```bash
 pip install -e ".[notebooks]"
@@ -165,18 +186,31 @@ Get-ChildItem *.py | ForEach-Object { python $_.Name }   # PowerShell
 
 ## 4. Order of execution
 
-Most scripts are independent and can be run in any order. Four dependencies must be
+Most scripts are independent and can be run in any order. Five dependencies must be
 respected:
 
 1. **`figure5` is a pipeline.** Run in order:
    `01_load_and_filter.py` → `02_fiber_types.py` → then any of the numbered panel
-   scripts (`05`, `07`, `08`, `11`–`14`). The later steps read caches written by the
+   scripts (`05`, `08`, `11`–`15`). The later steps read caches written by the
    first two, and fail without them.
-2. **`supplementary_figure5/scripts/prep_*.py`** must run before that figure's panels.
-3. **`supplementary_figure3`** imports `figure2/scripts/common_figure2.py` and reads
-   `figure2`'s input tree, so `figure2`'s input must be present.
+2. **`supplementary_figure6/scripts/prep_digestion_efficiency.py`** must run before
+   that figure's panel. `protein_membrane_class.csv` and the protein-group matrix it
+   also needs are provided in `supplementary_figure6/input/`, because they derive
+   from an annotation step in the source experiment rather than from this code.
+3. **`supplementary_figure3`** and **`supplementary_figure4`** have no `input/` of
+   their own: both read `figure2`'s input tree through
+   `figure2/scripts/common_figure2.py`, so `figure2`'s input must be present.
 4. **`supplementary_figure2/scripts/supplement_reproducibility.py`** reads
-   `supplementary_figure1`'s input tree.
+   `supplementary_figure1`'s input tree, and panels 2a and 2b are drawn by
+   `figure1/scripts/suppl2_a_lc_comparison.py` and `suppl2_b_lc_correlation.py`
+   (see the table in section 3).
+5. **`figure1/scripts/panel_c_confinement.py`** reads
+   `figure1/input/confinement_profile.npz`, which is committed here rather than
+   downloaded — it is measured off the manuscript's artwork, not a search output,
+   so it has no place in the MassIVE deposit and `.gitignore` exempts it. The two
+   `figure1/scripts/prep_*.py` scripts that produce it read the manuscript's
+   Illustrator file, which is not part of the deposit; they are included as
+   provenance for the measurement, not as a step you have to run.
 
 Files named `common_*.py` are imported by the panel scripts, not run directly.
 
@@ -213,6 +247,23 @@ figure outputs.
 | `FileNotFoundError` on a `report.parquet` | `SPEC_DATA_ROOT` is wrong, or the input tree is not laid out as above |
 | a `figure5` panel script fails immediately | run `01_load_and_filter.py` and `02_fiber_types.py` first |
 | a figure looks stale after changing the data | delete the matching file in `SPEC_OUTPUT_ROOT/<figure>/data/` |
+
+---
+
+## Library scope
+
+`src/spec_analytics` is the subset of the analysis library these figures reach — 18
+of its 34 modules. The raw-file subpackage is not included: no figure in this paper
+opens a raw file. Nor are the plotting modules for rank curves, set overlaps,
+intensity distributions and annotated spectra, or the `species`, `reshape`,
+`pipeline`, `plate_map`, `msqueue`, `peaks` and `diann` modules. The retained unit
+tests run against exactly what is vendored:
+
+```bash
+python -m pytest unit_tests -q
+```
+
+Tests needing a PEAKS fixture skip: every search output in this paper is DIA-NN.
 
 ---
 

@@ -1,16 +1,9 @@
-"""In-silico digestion, sequence properties (GRAVY, coverage), FASTA loading,
-and per-protein-group info. Extracted from _core.py (REFACTOR_PLAN.md step 2);
-behaviour unchanged."""
-
+"""In-silico digestion, sequence properties (GRAVY, coverage), FASTA loading,"""
 from __future__ import annotations
-
 import os
 import re
-
 import numpy as np
 import pandas as pd
-
-
 _PROTEASE_SITES = {
     'trypsin': 'RK',
     'lysc': 'K',
@@ -18,25 +11,19 @@ _PROTEASE_SITES = {
     'chymotrypsin': 'FWY',
     'gluc': 'ED',
 }
-
-
 def count_missed_cleavages(sequence, protease='trypsin'):
     """Count missed cleavages within `sequence` (excluding the C-terminus)."""
     if not sequence:
         return 0
     sites = _PROTEASE_SITES.get(protease.lower(), 'RK')
     return sum(1 for aa in sequence[:-1] if aa in sites)
-
-
 def digest_protein(sequence, *, protease='trypsin', max_missed_cleavages=1,
                    keil_rule=False):
     """In-silico digest `sequence` into peptide tuples (start, end, peptide).
-
     Cuts after every cleavage residue by default. `max_missed_cleavages`
     controls how many missed cleavages each generated peptide may carry; the
     set of returned peptides therefore includes the fully-cleaved set plus any
     longer peptides that span up to `max_missed_cleavages` extra cut sites.
-
     Pass `keil_rule=True` to suppress cuts before Proline for trypsin/LysC/ArgC
     (the Keil 1992 observation). Off by default — most modern search engines
     treat Pro-blocking as optional, and disabling it gives a slightly more
@@ -53,7 +40,6 @@ def digest_protein(sequence, *, protease='trypsin', max_missed_cleavages=1,
                 continue
             cut_points.append(i + 1)
     cut_points.append(len(sequence))
-
     peptides = []
     for i in range(len(cut_points) - 1):
         for mc in range(max_missed_cleavages + 1):
@@ -63,8 +49,6 @@ def digest_protein(sequence, *, protease='trypsin', max_missed_cleavages=1,
             start, end = cut_points[i], cut_points[j]
             peptides.append((start, end, sequence[start:end]))
     return peptides
-
-
 def theoretical_coverage(
     sequence,
     *,
@@ -75,7 +59,6 @@ def theoretical_coverage(
     keil_rule=False,
 ):
     """Maximum sequence coverage achievable by an in-silico tryptic digest.
-
     Sums the residues of `sequence` covered by any peptide in the digest whose
     length falls in [min_peptide_length, max_peptide_length], and returns the
     percentage. Equivalent to "if every detectable peptide had been observed,
@@ -94,20 +77,14 @@ def theoretical_coverage(
         for k in range(start, end):
             covered[k] = 1
     return 100.0 * sum(covered) / L
-
-
-# Kyte-Doolittle hydropathy index (Kyte & Doolittle, J. Mol. Biol. 1982).
 _KYTE_DOOLITTLE = {
     'A': 1.8, 'R': -4.5, 'N': -3.5, 'D': -3.5, 'C': 2.5,
     'Q': -3.5, 'E': -3.5, 'G': -0.4, 'H': -3.2, 'I': 4.5,
     'L': 3.8, 'K': -3.9, 'M': 1.9, 'F': 2.8, 'P': -1.6,
     'S': -0.8, 'T': -0.7, 'W': -0.9, 'Y': -1.3, 'V': 4.2,
 }
-
-
 def gravy(sequence):
     """Grand average of hydropathy (GRAVY, Kyte-Doolittle) for a sequence.
-
     Returns the mean hydropathy across all residues, ignoring unknown letters.
     NaN for empty input or sequences containing only unrecognised characters.
     More positive = more hydrophobic; more negative = more hydrophilic.
@@ -118,8 +95,6 @@ def gravy(sequence):
     if not vals:
         return float('nan')
     return sum(vals) / len(vals)
-
-
 def compute_theoretical_coverage(
     protein_info,
     protein_sequences,
@@ -131,11 +106,9 @@ def compute_theoretical_coverage(
     keil_rule=False,
 ):
     """Theoretical coverage per row of `protein_info` (uses representative_protein).
-
     Returns a Series aligned to `protein_info.index`. Rows whose representative
     protein is missing from `protein_sequences` get NaN.
     """
-    # Cache by leader id so we don't re-digest the same protein per condition.
     cache = {}
     out = []
     for leader in protein_info['representative_protein']:
@@ -154,15 +127,8 @@ def compute_theoretical_coverage(
                 )
         out.append(cache[leader])
     return pd.Series(out, index=protein_info.index, name='theoretical_coverage_pct')
-
-
-# ============================================================================
-# Protein-level info (sequence coverage and peptides per protein group)
-# ============================================================================
-
 def load_protein_sequences(path: str) -> dict[str, str]:
     """Load `{protein_id: AA_sequence}` from FASTA or DIA-NN protein_description.tsv.
-
     Accepted inputs:
       * FASTA (`.fa`, `.fasta`) — UniProt-style headers `>sp|ACC|NAME ...` and
         `>tr|ACC|NAME ...` are parsed to use the bare accession as the key.
@@ -181,7 +147,6 @@ def load_protein_sequences(path: str) -> dict[str, str]:
                 f'got {list(tab.columns)}'
             )
         return dict(zip(tab['Protein.Id'].astype(str), tab['Sequence'].astype(str)))
-
     out: dict[str, str] = {}
     cur_id: str | None = None
     cur_seq: list[str] = []
@@ -200,8 +165,6 @@ def load_protein_sequences(path: str) -> dict[str, str]:
         if cur_id is not None:
             out[cur_id] = ''.join(cur_seq)
     return out
-
-
 def compute_protein_info(
     df,
     sample_info,
@@ -211,7 +174,6 @@ def compute_protein_info(
     hue_col=None,
 ):
     """Per-(protein_group x group) summary: peptide count and sequence coverage.
-
     For each value of `sample_info[group_col]`, restricts to that group's runs
     and computes for every detected `protein_group`:
       * `n_peptides` — number of unique stripped-sequence peptides
@@ -223,13 +185,10 @@ def compute_protein_info(
         peptide in the leader sequence and counting unique covered residues.
       * `protein_length` — length of the leader sequence.
       * `representative_protein` — the leader id used.
-
     Pass `group_col=None` for a single combined row per protein group across
     all runs in `df` (group label `'all'`).
-
     Pass `hue_col=` to partition by both `group_col` and `hue_col`; the
     output gains a `hue` column and one row per (protein_group, group, hue).
-
     Protein groups whose leader id is not in `protein_sequences` get NaN
     `coverage_pct` and `protein_length`, but `n_peptides` is still reported.
     """
@@ -244,16 +203,12 @@ def compute_protein_info(
             grp = combo[0]
             hue = combo[1] if hue_col else None
             partitions.append(((grp, hue), set(sub['run'])))
-
-    # First non-empty gene per protein_group, evaluated globally so it stays
-    # consistent across condition rows.
     gene_map = {}
     if 'genes' in df.columns:
         gene_map = (df.assign(_g=df['genes'].astype(str).str.split(';').str[0])
                       .groupby('protein_group')['_g']
                       .agg(lambda s: next((v for v in s if v), ''))
                       .to_dict())
-
     rows = []
     for (grp, hue), runs in partitions:
         sub = df[df['run'].isin(runs)].dropna(subset=['protein_group', 'sequence'])
@@ -278,7 +233,7 @@ def compute_protein_info(
                             break
                         for i in range(idx, idx + len(pep)):
                             covered[i] = 1
-                        start = idx + 1  # allow overlapping matches
+                        start = idx + 1
                 cov_pct = 100.0 * sum(covered) / len(seq)
                 prot_len = len(seq)
             else:

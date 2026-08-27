@@ -2,24 +2,22 @@
 import os
 import runpy
 import sys
-import types
-
 import pandas as pd
-
-SCRIPTS = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.abspath(os.path.join(SCRIPTS, '..', '..')))
-import spec_config as _cfg
-SCRATCH = _cfg.output_dir(__file__, 'sensitivity_no_outlier_filter')
+FIG5 = _cfg.output_dir_of('figure5')
+SCRIPTS = os.path.join(FIG5, 'scripts')
+SCRATCH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data',
+                       'sensitivity_no_outlier_filter')
 os.makedirs(SCRATCH, exist_ok=True)
 os.makedirs(os.path.join(SCRATCH, 'plots'), exist_ok=True)
-
 sys.path.insert(0, SCRIPTS)
 os.chdir(SCRIPTS)
+import spec_analytics as core
 
-import spec_analytics as core                 # noqa: E402
-import common as C                                  # noqa: E402
-
-from pathlib import Path                            # noqa: E402
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..')))
+import spec_config as _cfg
+import common as C
+from pathlib import Path
 C.DATA = Path(SCRATCH)
 for name in ('DF_FILTERED', 'SI_FILTERED', 'SI_TYPED'):
     if hasattr(C, name):
@@ -28,12 +26,9 @@ if hasattr(C, 'PLOTS'):
     C.PLOTS = Path(SCRATCH) / 'plots'
 if hasattr(C, 'OUT'):
     C.OUT = Path(SCRATCH)
-C.save_panel = lambda *a, **k: None                 # no figures for a sensitivity run
-
-
+C.save_panel = lambda *a, **k: None
 def _no_filter(df, sample_info, *, cohort_col='condition1', **kwargs):
     """Keep every run, returning a QC frame with the columns step 01 goes on to read.
-
     `threshold` is -inf rather than NaN: the caller uses it to draw a cutoff line and
     to report how many runs fell below, and -inf keeps both truthful — nothing is
     below it, which is exactly what "no filter" means.
@@ -49,34 +44,17 @@ def _no_filter(df, sample_info, *, cohort_col='condition1', **kwargs):
         'n_dropped': [0] * len(cohorts),
     })
     return df, sample_info, qc
-
-
 core.filter_outlier_runs = _no_filter
-
 for step in ('01_load_and_filter.py', '02_fiber_types.py', '14_volcano_I_vs_IIb.py'):
     print(f'\n{"=" * 70}\nRUNNING {step}\n{"=" * 70}')
     runpy.run_path(os.path.join(SCRIPTS, step), run_name='__main__')
-
-# ---------------------------------------------------------------------------
-# Compare
-# ---------------------------------------------------------------------------
-# The filtered run writes its volcano table to the figure's cache under
-# SPEC_OUTPUT_ROOT (common.py's DATA), not into the repository.
-FILTERED_VOLCANO = _cfg.data_dir(__file__, 'volcano_I_vs_IIb.csv')
-if not os.path.exists(FILTERED_VOLCANO):
-    raise SystemExit(f'run 14_volcano_I_vs_IIb.py first: {FILTERED_VOLCANO} '
-                     'is missing')
-filt = pd.read_csv(FILTERED_VOLCANO)
+filt = pd.read_csv(os.path.join(FIG5, 'data', 'volcano_I_vs_IIb.csv'))
 unf = pd.read_csv(os.path.join(SCRATCH, 'volcano_I_vs_IIb.csv'))
-
-
 def regulated(v):
     import numpy as np
     return set(v.loc[(v['p_adj'] < 0.05)
                      & (v['log2fc_I_vs_IIb'].abs() > np.log2(1.5)),
                      'protein_group'])
-
-
 a, b = regulated(filt), regulated(unf)
 print('\n' + '=' * 70)
 print('SENSITIVITY TO THE OUTLIER FILTER')
@@ -88,13 +66,11 @@ print(f'shared                : {len(a & b):,} '
 print(f'  filtered only       : {len(a - b):,}')
 print(f'  unfiltered only     : {len(b - a):,}')
 print(f'  recovered from the filtered set: {100 * len(a & b) / len(a):.1f} %')
-
 m = filt.merge(unf, on='protein_group', suffixes=('_f', '_u'))
 print(f'\nfold changes on the {len(m):,} protein groups tested in both: '
       f'Pearson r = {m["log2fc_I_vs_IIb_f"].corr(m["log2fc_I_vs_IIb_u"]):.4f}, '
       f'median |delta| = '
       f'{(m["log2fc_I_vs_IIb_f"] - m["log2fc_I_vs_IIb_u"]).abs().median():.3f} log2')
-
 sign = ((m['log2fc_I_vs_IIb_f'] > 0) == (m['log2fc_I_vs_IIb_u'] > 0))
 both = m[m['protein_group'].isin(a & b)]
 sign_both = ((both['log2fc_I_vs_IIb_f'] > 0) == (both['log2fc_I_vs_IIb_u'] > 0))

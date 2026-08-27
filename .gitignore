@@ -3,6 +3,15 @@
 # input/ folder (see README section 2). They are ~11 GB and are not tracked.
 */input/
 
+# One exception, committed rather than downloaded: figure 1c's confinement
+# profile is 190 kB measured off the manuscript's Illustrator file, not a search
+# output, so it has no place in the MassIVE deposit. Git will not look inside an
+# ignored directory, so the directory is un-ignored and its contents re-ignored
+# before the single file is allowed back.
+!figure1/input/
+figure1/input/*
+!figure1/input/confinement_profile.npz
+
 # --- generated outputs ----------------------------------------------------
 # Default SPEC_OUTPUT_ROOT, plus the names earlier runs used.
 output/

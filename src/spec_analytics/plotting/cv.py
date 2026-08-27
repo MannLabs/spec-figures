@@ -1,19 +1,11 @@
-"""CV-distribution plots: violin, ECDF, and combined stacked bars.
-
-Extracted from _core.py (REFACTOR_PLAN.md step 5); behaviour unchanged. Heavy plotting deps (matplotlib, seaborn, scipy, sklearn) are imported lazily inside the functions."""
-
+"""CV-distribution plots: violin, ECDF, and combined stacked bars."""
 from __future__ import annotations
-
 import warnings
-
 import numpy as np
 import pandas as pd
-
 from ._style import (PALETTE_SINGLE, PALETTE_CV_CATEGORIES, _hide_top_right_spines, _annotate_stacked_bar, _LEVEL_COLS,
                      _resolve_panel_size)
 from ..stats import _compute_cv_table
-
-
 def plot_cv_vs_abundance(
     df, sample_info, *, level='precursor', group_col='condition2',
     group_order=None, palette=None, n_bins=10, complete_only=True,
@@ -22,24 +14,20 @@ def plot_cv_vs_abundance(
     verbose=True,
 ):
     """Median CV against abundance, in bins, one line per condition.
-
     A median CV is one number for a distribution that is strongly
     abundance-dependent: measurement scatter is the quadrature sum of
     ion-statistics noise, which scales as 1/sqrt(intensity), and an
     intensity-independent technical term. This panel separates them — the
     high-abundance end estimates the technical floor alone, and the slope toward
     low abundance is the counting term.
-
     That makes it the right panel for asking whether one method's precision
     advantage is real across the range or confined to abundant features, which a
     median cannot answer.
-
     **Complete cases only** by default (`complete_only=True`): entities
     quantified in *every* replicate of their condition. A CV over a subset of
     replicates mixes measurement scatter with detection sporadicity, and telling
     those apart is the whole point here. Turning it off inflates the
     low-abundance end with entities that were simply missed.
-
     Bins are **per condition** quantiles of that condition's own intensity
     distribution, and each point is drawn at its bin's median intensity. Shared
     absolute bin edges would compare like abundance for like, but absolute
@@ -47,27 +35,22 @@ def plot_cv_vs_abundance(
     would silently align different physical amounts. The consequence to keep in
     mind: two curves at the same x are at the same *measured* intensity, which is
     only the same amount of peptide if the methods respond alike.
-
     :returns: ``(fig, ax, source_df)`` with the plotted medians and quartiles.
     """
     import matplotlib.pyplot as plt
-
     id_col, val_col = _LEVEL_COLS[level]
     palette = palette if palette is not None else PALETTE_SINGLE
     groups = (list(group_order) if group_order is not None
               else list(sample_info[group_col].dropna().unique()))
     if isinstance(palette, (list, tuple)):
         palette = {g: palette[i % len(palette)] for i, g in enumerate(groups)}
-
     created = ax is None
     if created:
         fig, ax = plt.subplots(figsize=_resolve_panel_size(figsize))
     else:
         fig = ax.figure
-
     work = df.dropna(subset=[id_col, val_col])
     work = work[work[val_col] > 0]
-
     rows = []
     for group in groups:
         runs = list(sample_info.loc[sample_info[group_col] == group, 'run'])
@@ -81,20 +64,15 @@ def plot_cv_vs_abundance(
         wide = wide[n_obs == len(runs)] if complete_only else wide[n_obs >= 3]
         if wide.empty:
             continue
-
         cv = (wide.std(axis=1, ddof=1) / wide.mean(axis=1) * 100)
         intensity = np.log10(wide.mean(axis=1))
         frame = pd.DataFrame({'cv': cv, 'log10_intensity': intensity}).dropna()
-        # qcut on the condition's own distribution — see the docstring.
         frame['bin'] = pd.qcut(frame['log10_intensity'], n_bins, labels=False,
                               duplicates='drop')
-        # Columns deliberately not named 'median'/'q1': on a Series row those
-        # shadow DataFrame methods, and `row.median` then returns the method.
         stats = frame.groupby('bin').agg(
             x=('log10_intensity', 'median'), cv_median=('cv', 'median'),
             cv_q1=('cv', lambda s: s.quantile(0.25)),
             cv_q3=('cv', lambda s: s.quantile(0.75)), n_entities=('cv', 'size'))
-
         ax.plot(stats['x'], stats['cv_median'], marker='o', markersize=3.5,
                 lw=1.6, color=palette[group], label=str(group), zorder=3)
         if show_iqr:
@@ -111,7 +89,6 @@ def plot_cv_vs_abundance(
             print(f'    {group}: {len(frame):,} complete {level}s, median CV '
                   f'{stats["cv_median"].iloc[-1]:.1f}% in the top bin -> '
                   f'{stats["cv_median"].iloc[0]:.1f}% in the bottom')
-
     if cv_threshold:
         ax.axhline(cv_threshold, ls=':', color='#d62728', lw=1.2, zorder=0)
     ax.set_xlabel(f'log₁₀ mean {level} intensity', fontsize=label_fontsize)
@@ -126,8 +103,6 @@ def plot_cv_vs_abundance(
     if created:
         fig.tight_layout()
     return fig, ax, pd.DataFrame(rows)
-
-
 def plot_cv_violin(
     df,
     sample_info,
@@ -159,33 +134,27 @@ def plot_cv_violin(
 ):
     """
     Violin plot of CV distribution per replicate group.
-
     Styling follows the house style: per-group fill from `palette` (a list
     cycled over the groups, or a dict keyed by group label), a dark-grey inner
     box with a white median line (no red), and the per-group median CV printed
     in bold below each violin (`median_label_loc='below'`; use `'inline'` for
     the old in-violin label, `'none'` to suppress).
-
     `as_percent=True` plots CV in percent (0-100) and labels the axis [%].
     `group_order` fixes the x order; `ax` draws onto an existing axis (e.g. for
     stacked PG/peptide panels). `show_threshold` (off by default) adds the red
     dashed CV-threshold guide.
-
     `hue_col=` splits each x category into side-by-side violins by a second
     sample_info column (e.g. instrument). Empty (group, hue) cells are skipped.
-
     Returns (fig, ax, cv_stats) where `cv_stats` is a DataFrame with one row
     per group (or per (group, hue) when `hue_col` is set) containing
     n_total, n_CV<10%, n_CV<20%, %_CV<20%, median_CV.
     """
     import matplotlib.pyplot as plt
     import seaborn as sns
-
     palette = palette if palette is not None else PALETTE_SINGLE
     palette_is_dict = isinstance(palette, dict)
     cv_table = _compute_cv_table(df, sample_info, level, group_col,
                                  min_values_for_cv, hue_col=hue_col)
-
     stats_keys = ['group'] + (['hue'] if hue_col else [])
     cv_stats_rows = []
     for keys, sub in cv_table.groupby(stats_keys, sort=False):
@@ -207,20 +176,17 @@ def plot_cv_violin(
         })
         cv_stats_rows.append(row)
     cv_stats = pd.DataFrame(cv_stats_rows)
-
     scale = 100.0 if as_percent else 1.0
     cv_table = cv_table.copy()
     cv_table['cv_plot'] = cv_table['cv'] * scale
     if ylim is None:
         ylim = (0, 80) if as_percent else (0, 1)
-
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
         created_fig = True
     else:
         fig = ax.figure
         created_fig = False
-
     if hue_col is None:
         groups = (group_order if group_order is not None
                   else list(cv_table['group'].unique()))
@@ -244,8 +210,6 @@ def plot_cv_violin(
             showfliers=False,
         )
     else:
-        # Use only the hues actually present so seaborn doesn't reserve dodge
-        # slots for absent (group, hue) combinations.
         hues = list(cv_table['hue'].drop_duplicates())
         groups = (group_order if group_order is not None
                   else list(cv_table['group'].unique()))
@@ -260,13 +224,7 @@ def plot_cv_violin(
             ax=ax, inner=None, cut=0, density_norm='width',
             hue_order=hues, dodge=True,
         )
-        # Same inner box as the no-hue branch (dark box, white median) rather
-        # than seaborn's quartile lines, so hue-split panels match the house
-        # style. Drawn one cell at a time at explicit dodge positions: a dodged
-        # seaborn boxplot mis-places boxes when (group, hue) cells are missing,
-        # whereas positions computed here simply skip an absent cell.
-        # `manage_ticks=False` keeps boxplot from resetting the categorical axis.
-        slot = 0.8 / len(hues)          # seaborn's default violin width is 0.8
+        slot = 0.8 / len(hues)
         for group_index, grp in enumerate(groups):
             for hue_index, hue_value in enumerate(hues):
                 cell = cv_table.loc[(cv_table['group'] == grp)
@@ -284,21 +242,15 @@ def plot_cv_violin(
                     whiskerprops={'color': box_edgecolor, 'linewidth': 1},
                     medianprops={'color': median_color, 'linewidth': 2},
                 )
-
     if show_threshold:
         ax.axhline(cv_threshold * scale, color='red', linestyle='--',
                    linewidth=1.5, label=f'CV = {cv_threshold * 100:.0f}%')
-
     if show_median_label and hue_col is None and median_label_loc != 'none':
         y_below = ylim[0] - 0.06 * (ylim[1] - ylim[0])
         for i, grp in enumerate(groups):
             row = cv_stats[cv_stats['group'] == grp]
             if row.empty:
                 continue
-            # The label is always a percentage, whatever the axis units, but it
-            # has to be POSITIONED in plot units. Reading `med` for both is the
-            # bug this splits apart: with as_percent=False a median CV of 0.066
-            # printed as f'{med:.1f}%' came out "0.1%".
             median_cv = float(row['median_CV'].iloc[0])
             med = median_cv * scale
             med_pct = median_cv * 100.0
@@ -308,7 +260,7 @@ def plot_cv_violin(
                     fontsize=median_label_fontsize, fontweight='bold',
                     color=median_label_color, annotation_clip=False,
                 )
-            else:  # 'inline'
+            else:
                 ax.annotate(
                     f'{med_pct:.1f}%', xy=(i + 0.15, med), ha='left', va='center',
                     fontsize=median_label_fontsize, fontweight='bold',
@@ -316,7 +268,6 @@ def plot_cv_violin(
                     bbox=dict(boxstyle='round,pad=0.2', facecolor='white',
                               edgecolor='none', alpha=0.8),
                 )
-
     if y_label is None:
         y_label = 'CV [%]' if as_percent else 'Coefficient of Variation'
     ax.set_ylabel(y_label, fontsize=10)
@@ -327,19 +278,15 @@ def plot_cv_violin(
     ax.tick_params(labelsize=10)
     if title is not None:
         ax.set_title(title, fontsize=11, fontweight='bold')
-
     if hue_col is not None:
         ax.legend(fontsize=legend_fontsize, frameon=False,
                   loc='upper left', bbox_to_anchor=(1.02, 1), borderaxespad=0)
     elif show_threshold:
         ax.legend(fontsize=legend_fontsize, loc='upper right', frameon=False)
-
     sns.despine(ax=ax)
     if created_fig:
         plt.tight_layout()
     return fig, ax, cv_stats
-
-
 def plot_cv_ecdf(
     df,
     sample_info,
@@ -364,35 +311,29 @@ def plot_cv_ecdf(
 ):
     """
     Empirical CDF of per-feature CVs, one step curve per replicate group.
-
     CVs are plotted in percent. With `annotate_median=True` the per-group
     median CV is appended to each legend entry (e.g. 'C18 (6.2%)'), so the
     median reads directly off the legend; a dotted red guide marks
     `cv_threshold`. House-style tick density: y major 0.1 / minor 0.05; x major
     every 5%.
-
     `palette` may be a list (cycled over `group_order`) or a dict keyed by
     group label. Pass `ax` to draw onto an existing axis and `linestyle='--'`
     to overlay a second level (e.g. peptide dashed over protein solid).
-
     Returns (fig, ax, cv_stats) with one row per group
     (group, median_CV, n_total, %_CV<thr).
     """
     import matplotlib.pyplot as plt
     from matplotlib.ticker import MultipleLocator
-
     palette = palette if palette is not None else PALETTE_SINGLE
     palette_is_dict = isinstance(palette, dict)
     cv_table = _compute_cv_table(df, sample_info, level, group_col,
                                  min_values_for_cv)
-
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
         created_fig = True
     else:
         fig = ax.figure
         created_fig = False
-
     groups = (group_order if group_order is not None
               else list(cv_table['group'].unique()))
     cv_stats_rows = []
@@ -411,7 +352,6 @@ def plot_cv_ecdf(
             'group': grp, 'median_CV': med / 100.0, 'n_total': int(vals.size),
             '%_CV<20%': float((vals < cv_threshold * 100).mean() * 100),
         })
-
     ax.axvline(cv_threshold * 100, color='red', linestyle=':', linewidth=1)
     ax.set_xlim(xlim)
     ax.set_ylim(0, 1)
@@ -428,8 +368,6 @@ def plot_cv_ecdf(
     if created_fig:
         plt.tight_layout()
     return fig, ax, pd.DataFrame(cv_stats_rows)
-
-
 def plot_cv_stacked_bar_combined(
     df,
     sample_info,
@@ -449,22 +387,18 @@ def plot_cv_stacked_bar_combined(
     """
     Stacked bars showing the CV distribution per replicate group at a single
     quantitation level, split into < 10% / 10-20% / >= 20% bins.
-
     `hue_col=` adds a side-by-side stack per (group, hue). Empty (group, hue)
     cells are skipped silently.
-
     Returns (fig, ax, cv_counts) where `cv_counts` has columns
     'group', ('hue' if hue_col), 'CV < 10%', 'CV 10-20%', 'CV >= 20%', 'Total'.
     """
     import matplotlib.pyplot as plt
-
     if level not in _LEVEL_COLS:
         raise ValueError(
             f"level must be one of {sorted(_LEVEL_COLS)}, got {level!r}"
         )
     palette = palette if palette is not None else PALETTE_CV_CATEGORIES
     fig, ax = plt.subplots(figsize=figsize)
-
     cv_table = _compute_cv_table(df, sample_info, level, group_col,
                                  min_values_for_cv, hue_col=hue_col)
     keys = ['group'] + (['hue'] if hue_col else [])
@@ -488,7 +422,6 @@ def plot_cv_stacked_bar_combined(
             })
             rows.append(row)
     cv_counts = pd.DataFrame(rows, columns=cv_count_cols)
-
     categories = ['CV < 10%', 'CV 10-20%', 'CV >= 20%']
     if cv_counts.empty:
         warnings.warn(
@@ -500,12 +433,9 @@ def plot_cv_stacked_bar_combined(
     else:
         groups = list(cv_counts['group'].drop_duplicates())
     x = np.arange(len(groups))
-
-    # Default bar_width depends on layout: 0.6 for single, 0.8 for hue cluster.
     eff_bar_width = bar_width if bar_width is not None else (
         0.8 if hue_col else 0.6
     )
-
     if hue_col is None:
         bottom = np.zeros(len(groups))
         cv_counts_idx = cv_counts.set_index('group').reindex(groups)
@@ -536,7 +466,6 @@ def plot_cv_stacked_bar_combined(
             bottom = np.zeros(len(groups))
             for ci, (cat, color) in enumerate(zip(categories, palette)):
                 values = cv_h[cat].astype(float).fillna(0).to_numpy()
-                # Only the first hue gets the colour-category legend entry.
                 label = cat if hi == 0 else None
                 bars = ax.bar(x + offsets[hi], values, sub_width,
                               bottom=bottom, color=color,
@@ -547,14 +476,12 @@ def plot_cv_stacked_bar_combined(
                                           cv_h['Total'].astype(float).fillna(0).to_numpy(),
                                           value_format)
                 bottom += values
-            # n= label per hue stack.
             for j, total in enumerate(cv_h['Total'].astype(float).fillna(0).to_numpy()):
                 if total > 0:
                     ax.annotate(f'n={int(total):,}',
                                 xy=(x[j] + offsets[hi], total),
                                 ha='center', va='bottom',
                                 fontsize=7, fontweight='bold')
-            # Hue label below the x tick (small, in the bar's middle x position).
             for j, grp in enumerate(groups):
                 if cv_h['Total'].fillna(0).iloc[j] > 0:
                     ax.text(x[j] + offsets[hi], -0.02, str(hue),
@@ -563,7 +490,6 @@ def plot_cv_stacked_bar_combined(
                             clip_on=False)
         ax.set_xticks(x)
         ax.set_xticklabels(groups, rotation=45, ha='right', fontsize=10)
-
     ax.set_title(title if title else f'{level.capitalize()}-level CVs',
                  fontsize=12, fontweight='bold')
     ax.set_ylim(bottom=0)
@@ -571,7 +497,6 @@ def plot_cv_stacked_bar_combined(
     ax.set_ylabel('Count', fontsize=11, fontweight='bold')
     ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1),
               frameon=False, fontsize=9, borderaxespad=0)
-
     _hide_top_right_spines(ax)
     plt.tight_layout()
     return fig, ax, cv_counts

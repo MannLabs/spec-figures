@@ -1,15 +1,11 @@
-"""IO subpackage: engine-agnostic experiment dispatch and the concrete
-search-engine loaders. See REFACTOR_PLAN.md §3."""
-
+"""IO subpackage: engine-agnostic experiment dispatch and the concrete"""
 from __future__ import annotations
-
-from .experiments import (  # noqa: F401
+from .experiments import (
     detect_engine,
     load_experiments,
     sample_info_from_experiments,
     split_by_engine,
 )
-from .peaks import load_peaks  # noqa: F401
-from .diann import load_diann  # noqa: F401
-
-from . import experiments, peaks, diann  # noqa: F401
+from .peaks import load_peaks
+from .diann import load_diann
+from . import experiments, peaks, diann
