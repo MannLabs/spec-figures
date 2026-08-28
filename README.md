@@ -244,6 +244,7 @@ figure outputs.
 | symptom | cause |
 |---|---|
 | `ModuleNotFoundError: No module named 'spec_analytics'` | the package is not installed — see step 1 |
+| `ValueError: assignment destination is read-only`, inside directLFQ | pandas 3 is installed. directLFQ 0.3.3 declares no upper bound and breaks there; `pyproject.toml` caps it at `<3`, so this only reaches an environment that already had pandas 3. `pip install "pandas<3"` |
 | `FileNotFoundError` on a `report.parquet` | `SPEC_DATA_ROOT` is wrong, or the input tree is not laid out as above |
 | a `figure5` panel script fails immediately | run `01_load_and_filter.py` and `02_fiber_types.py` first |
 | a figure looks stale after changing the data | delete the matching file in `SPEC_OUTPUT_ROOT/<figure>/data/` |

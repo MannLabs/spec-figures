@@ -19,9 +19,18 @@ requires-python = ">=3.12"
 # parquet read needs pyarrow, `plot_venn` needs matplotlib-venn and the isoelectric
 # point needs pyteomics. A clean install therefore built fine and then failed at
 # import, which is the worst place for a missing dependency to surface.
+#
+# pandas carries the one UPPER bound, and it is not caution: directlfq 0.3.3
+# declares a bare `pandas`, so a clean install today resolves pandas 3.x and then
+# dies inside its multiprocessing pool with "assignment destination is read-only"
+# — pandas 3 hands the worker a read-only array. Measured in an empty venv: two
+# panels (Supplementary Fig. 2b and 2e–g) crashed on pandas 3.0.5 and both pass on
+# 2.3.3 with numpy 2.5.2 unchanged, so pandas is the whole of it. An upper bound on
+# a major version known to break a dependency is not the same as pinning: the
+# package stays co-installable with anything in the 2.x line.
 dependencies = [
     "numpy>=2.3",
-    "pandas>=2.3",
+    "pandas>=2.3,<3",
     "matplotlib>=3.10",
     "scipy>=1.16",
     "seaborn>=0.13",
