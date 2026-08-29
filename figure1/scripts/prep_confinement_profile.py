@@ -183,4 +183,4 @@ np.savez(HERE / '..' / 'input' / 'confinement_profile.npz', depth=depth,
                       'n_crest', 'draw_depth_um')},
          **{f'{n}_{k}': summary[n][k] for n in summary
             for k in ('tilt_med', 'n_flat', 'flat_med', 'flat_iqr')})
-print('wrote data/confinement_profile.npz')
+print('wrote input/confinement_profile.npz')
